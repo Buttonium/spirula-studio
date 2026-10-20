@@ -347,6 +347,51 @@ int main(int argc, char** argv) {
             acc.insert(acc.end(), got.begin(), got.end());
         }
 
+        // ---- densify_learned_score ----
+        // Ratios past the cap both ways, splats with no weight this step, and
+        // ones with no update yet (start from the prior).
+        {
+            std::vector<float> ratio(N * 2), lacc(N * 2);
+            for (int64_t i = 0; i < N; i++) {
+                ratio[i] = i % 11 == 0 ? 0.f : i % 13 == 0 ? 1e6f : uf(0.05f, 20.f);
+                ratio[N + i] = i % 7 == 0 ? 0.f : uf(0.01f, 3.f);
+                lacc[2 * i] = uf(0.f, 1.f);
+                lacc[2 * i + 1] = i % 4 == 0 ? 0.f : (float)(int)uf(1.f, 30.f);
+            }
+            float* d_ratio = upload(ratio);
+            for (int64_t frozen : {int64_t(0), int64_t(257), N}) {
+                float* d_lacc = upload(lacc);
+                float* d_over = upload(std::vector<float>(N, 1.f));
+                float* d_stats = upload(std::vector<float>(2, 0.f));
+                densify_learned_score_tensor(N, 0.4f, 0.1f, -3.0f, 0.02f, dv_f(d_radii, N),
+                                             dv_f(d_ratio, 2 * N), dv_f2(d_lacc, N),
+                                             5.0f, dv_f(d_over, N), dv_f(d_stats, 2), frozen);
+                backend::device_synchronize();
+                const size_t offset = acc.size();
+                readback_f(acc, d_lacc, N * 2);
+                readback_f(acc, d_over, N);
+                readback_f(acc, d_stats, 2);
+                bool frozen_ok = true;
+                int expected_count = 0;
+                for (int64_t i = 0; i < N; ++i) {
+                    if (i < frozen)
+                        frozen_ok &= acc[offset + 2 * i] == 0.f &&
+                                     acc[offset + 2 * i + 1] == 0.f &&
+                                     acc[offset + 2 * N + i] == 0.f;
+                    else
+                        expected_count += radii[i] > 0.f && ratio[N + i] > 0.f;
+                }
+                if (!frozen_ok || acc.back() != (float)expected_count) {
+                    std::printf("optim_parity: learned score included frozen rows\n");
+                    return 1;
+                }
+                backend::device_free(d_lacc);
+                backend::device_free(d_over);
+                backend::device_free(d_stats);
+            }
+            backend::device_free(d_ratio);
+        }
+
         // ---- densify_oversize_weight ----
         {
             std::vector<float> over(N), sc(N * 2);

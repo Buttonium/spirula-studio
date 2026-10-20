@@ -91,14 +91,20 @@ Training treats those rows as static geometry:
 - **densification**: every kernel that could move, split, revive, clip or fade
   a row takes the prefix boundary (`first_trainable_splat`) and skips it --
   see `src/kernels/densify/*.cu` and `backend/vulkan/shaders/densify.slang`.
-  Scores and draw weights of frozen rows are held at 0, which is what keeps
-  them out of the split/revival draws: the Efraimidis sampler only counts
-  strictly positive weights as eligible.
+  Scores and draw weights of frozen rows are held at 0. Split draws rank
+  frozen rows after every trainable row and cap additions at the number of
+  trainable parents, including when positive weights run out. Relocation
+  only uses the sampler's strictly positive eligible weights.
+  Learned-score updates also zero the prefix scores and exclude those rows
+  from the prior statistics.
 - **region**: sky rows are always "inside", so the region test costs them no
   work and the outside-opacity decay never touches them.
 
 `src/backend/tests/densify_parity.cpp` checks the invariant directly: with a
 frozen prefix, the noise kernels must leave those rows bit-identical.
+It also covers relocation with opacity and peak-weight death tests;
+sparse-weight split draws leave the prefix unchanged. `optim_parity` checks
+learned-score exclusion and reduction counts.
 
 ## Restriction
 

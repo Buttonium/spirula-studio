@@ -255,6 +255,38 @@ target_compile_options(ss_roma PRIVATE
 set_property(TARGET ss_roma PROPERTY CXX_STANDARD 17)
 
 # ---------------------------------------------------------------------------
+# ss_blur -- the edge-width blur measure on the device. app/FrameSharpness.cpp
+# is the host copy every build has; edge_width_test holds the two together.
+# ---------------------------------------------------------------------------
+ss_nn_shaders(blur ${SS_SRC}/blur/shaders SS_BLUR_EMBED)
+add_library(ss_blur STATIC ${SS_SRC}/blur/EdgeWidthGpu.cpp ${SS_BLUR_EMBED})
+target_link_libraries(ss_blur PUBLIC ss_nn)
+target_compile_options(ss_blur PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:${SPLAT_CXX_FLAGS}>)
+set_property(TARGET ss_blur PROPERTY CXX_STANDARD 17)
+
+# ---------------------------------------------------------------------------
+# ss_lpips -- LPIPS for the eval pass, which reaches it through the hook
+# app/EvalLpips.cpp installs: TrainerCore lives in the engine library and
+# cannot link this. Its one shader is the per-tap distance.
+# ---------------------------------------------------------------------------
+ss_nn_shaders(lpips ${SS_SRC}/lpips/shaders SS_LPIPS_EMBED)
+file(GLOB SS_LPIPS_SOURCES CONFIGURE_DEPENDS ${SS_SRC}/lpips/*.cpp)
+add_library(ss_lpips STATIC ${SS_LPIPS_SOURCES} ${SS_LPIPS_EMBED})
+target_link_libraries(ss_lpips PUBLIC ss_nn)
+target_compile_options(ss_lpips PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:${SPLAT_CXX_FLAGS}>)
+set_property(TARGET ss_lpips PROPERTY CXX_STANDARD 17)
+
+add_executable(edge_width_test ${SS_SRC}/blur/tests/edge_width_test.cpp
+                               ${SS_SRC}/app/FrameSharpness.cpp)
+target_link_libraries(edge_width_test PRIVATE ss_blur)
+target_compile_definitions(edge_width_test PRIVATE SS_HAVE_BLUR_GPU=1)
+set_property(TARGET edge_width_test PROPERTY CXX_STANDARD 17)
+target_compile_options(edge_width_test PRIVATE
+    $<$<COMPILE_LANGUAGE:CXX>:${SPLAT_CXX_FLAGS}>)
+
+# ---------------------------------------------------------------------------
 # ss_video -- container demux + VK_KHR_video_decode_*
 #
 # Gated on SS_ENABLE_PATENTED: H.264 / H.265 / AV1 bitstream parsing is the
@@ -300,14 +332,15 @@ file(GLOB SS_NN_TESTS CONFIGURE_DEPENDS
      ${SS_SRC}/aliked/tests/*.cpp ${SS_SRC}/loma/tests/*.cpp
      ${SS_SRC}/metric3d/tests/*.cpp
      ${SS_SRC}/moge/tests/*.cpp ${SS_SRC}/birefnet/tests/*.cpp
-     ${SS_SRC}/gdino/tests/*.cpp ${SS_SRC}/roma/tests/*.cpp)
+     ${SS_SRC}/gdino/tests/*.cpp ${SS_SRC}/roma/tests/*.cpp
+     ${SS_SRC}/lpips/tests/*.cpp)
 foreach(test_src ${SS_NN_TESTS})
     get_filename_component(test_name ${test_src} NAME_WE)
     add_executable(${test_name} ${test_src})
     # Every test links every library above it: the four are small, and one
     # rule here beats a per-directory list that drifts.
     target_link_libraries(${test_name} PRIVATE ss_sam ss_aliked ss_loma ss_metric3d
-                                                ss_moge ss_roma)
+                                                ss_moge ss_roma ss_lpips)
     set_property(TARGET ${test_name} PROPERTY CXX_STANDARD 17)
     target_compile_definitions(${test_name} PRIVATE SS_REPO_ROOT="${SS_ROOT}")
     target_compile_options(${test_name} PRIVATE

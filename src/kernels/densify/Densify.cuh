@@ -15,6 +15,13 @@ enum class DensifyScoreMode : int {
     Geom   = 3,
 };
 
+// Cap on the per-pixel ratio map / rendered score map, and its reciprocal
+// floor on a splat's update ratio, so a pixel no score explains yet (or one
+// with no error at all) moves a score by a bounded factor.
+constexpr float kLearnedScoreMaxRatio = 1e4f;
+// The smallest stored s^power, which a multiplicative update can still grow.
+constexpr float kLearnedScoreFloor = 1e-30f;
+
 
 /* == AUTO HEADER GENERATOR - DO NOT EDIT THIS LINE OR ANYTHING BELOW THIS LINE == */
 
@@ -32,7 +39,11 @@ void normalize_clip_map_inplace_tensor(
     TorchTensorView data,  // [B, ...], rows normalized independently
     bool normalize_median,
     float clip_quantile,
-    float power
+    float power,
+    // The learned score's rendered map, same shape: the result is then the
+    // map, conditioned but not powered, over it -- the ratio the score update
+    // reads (docs/notes/learned-densify-score.md). Null skips.
+    TorchTensorView fit
 );
 
 
@@ -91,6 +102,22 @@ void densify_clip_scale_tensor(
 );
 
 
+void densify_learned_score_tensor(
+    int64_t num_splats,
+    float power,
+    float rate,
+    float log_prior,
+    float pull,
+    DeviceVector<float> radii,
+    DeviceVector<float> ratio,          // [2N] Avg accumulator after finalize
+    DeviceVector<float2> accum_buffer,
+    float max_scale2d,
+    DeviceVector<float> oversize_accum, // empty to skip
+    DeviceVector<float> stats,          // [2], accumulated
+    int64_t first_trainable_splat
+);
+
+
 void densify_accum_finalize_tensor(
     int64_t num_splats,
     DeviceVector<float> accum  // [2 * num_splats], planar num then den
@@ -101,6 +128,20 @@ void densify_scale_score_by_renders_tensor(
     int64_t num_splats,
     DeviceVector<uint32_t> visit_counters,  // [N]
     DeviceVector<float2> score              // [N, 2]; lane 0 is multiplied in place
+);
+
+
+void densify_max_weight_init_tensor(
+    int64_t num_splats,
+    DeviceVector<float> opacs,      // [N] logits
+    DeviceVector<float> max_weight  // [N] out
+);
+
+
+void densify_max_weight_scale_tensor(
+    int64_t num_splats,
+    float scale,
+    DeviceVector<float> max_weight  // [N], multiplied in place
 );
 
 
@@ -180,6 +221,10 @@ int64_t relocate_splats_with_long_axis_split_tensor(
     DeviceVector<int32_t> bias_correction_steps,
     DeviceVector<uint32_t> visit_counters,
     uint32_t dead_after_steps,
+    // Peak alpha * T per splat; when given it is a second dead test against
+    // min_opacity and is carried src -> dst. dead_by_opacity keeps the first.
+    DeviceVector<float> max_weight,
+    bool dead_by_opacity,
     int sh_optim_bits,
     int num_sh,
     // SH-quant bounds buffer + layout flag used to encode (g1=0, g2=0) into
@@ -218,6 +263,7 @@ void add_splats_with_long_axis_split_tensor(
     DeviceVector<float2> sample_weights,
     DeviceVector<int32_t> bias_correction_steps,
     DeviceVector<uint32_t> visit_counters,
+    DeviceVector<float> max_weight,  // carried src -> dst; empty to skip
     int sh_optim_bits,
     int num_sh,
     DeviceVector<float4> sh_quant_bounds,
@@ -228,7 +274,8 @@ void add_splats_with_long_axis_split_tensor(
     bool sh_value_bounds_per_splat,
     int  num_sh_buffer,
     NonShQuantState non_sh,
-    uint32_t seed
+    uint32_t seed,
+    int64_t first_trainable_splat
 );
 
 

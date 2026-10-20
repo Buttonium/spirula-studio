@@ -26,7 +26,8 @@ cd "$(dirname "$0")/.." || exit 1
 
 # Python files that live in someone else's repo and are referenced as
 # provenance -- upstream model definitions and the sam3.cpp converters.
-EXTERNAL_PY='^(lightglue|aliked|blocks|hieradet|sam2|sam3|convert_sam2_to_ggml|convert_sam3_to_ggml|ViT_DINO_reg|RAFTDepthNormalDPTDecoder5|vision_transformer|modules|infer_panorama|dad|dedode|loma|birefnet|modeling_grounding_dino|modeling_swin|swin_transformer)\.py$'
+EXTERNAL_PY='^(lightglue|aliked|blocks|hieradet|sam2|sam3|convert_sam2_to_ggml|convert_sam3_to_ggml|ViT_DINO_reg|RAFTDepthNormalDPTDecoder5|vision_transformer|modules|infer_panorama|dad|dedode|loma|birefnet|modeling_grounding_dino|modeling_swin|swin_transformer|metrics)\.py$'
+EXTERNAL_PATH='^functional/image/lpips\.py$'
 
 # Include roots owned by a toolchain or a vendored dependency.
 EXTERNAL_DIR='^(cub|vulkan|GLFW|glm|thrust|cooperative_groups|backends|misc|geogram|nets|imgui)/'
@@ -72,7 +73,7 @@ lines=$(git grep -hIE "[A-Za-z0-9_.-]+\.($EXTS)\b" -- "${paths[@]}" "${globs[@]}
 # written for was in a user-facing string, in 13 languages.
 qualified=$(printf '%s\n' "$lines" \
     | grep -oE "[A-Za-z0-9_][A-Za-z0-9_.-]*(/[A-Za-z0-9_.-]+)+\.($EXTS)\b" \
-    | grep -vE "$EXTERNAL_DIR" | sort -u)
+    | grep -vE "$EXTERNAL_DIR|$EXTERNAL_PATH" | sort -u)
 
 for p in $qualified; do
     resolves "$p" || report "$p"
@@ -99,7 +100,7 @@ done
 if [ $fail -ne 0 ]; then
     echo "Fix the path, or delete the citation -- a pointer nobody can follow is"
     echo "worse than no pointer. Upstream files belong in EXTERNAL_PY /"
-    echo "EXTERNAL_DIR in this script."
+    echo "EXTERNAL_DIR / EXTERNAL_PATH in this script."
     exit 1
 fi
 
