@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -156,6 +157,59 @@ void check_bake_images(std::ostream* out) {
     }
 }
 
+void check_bake_color_space() {
+    BakeImages images;
+    TrainerSession session;
+    session.log_fn = [](const std::string&) {};
+    const double t[3] = {};
+    const auto view = view_at(t, 1.0, 1.0, 4, 2);
+    session.ds.num_cameras = 1;
+    session.ds.train_indices = {0};
+    session.ds.image_filenames = {(images.root / "rgb.png").string()};
+    session.ds.widths = {4};
+    session.ds.heights = {2};
+    session.ds.intrins = {1.0f, 1.0f, 0.0f, 0.0f};
+    session.ds.c2w.assign(view.c2w, view.c2w + 12);
+    const auto geometry = rows_of({0.5f, 0.5f, 1.0f, 3.5f, 1.5f, 1.0f,
+                                   20.0f, 0.0f, 1.0f});
+    auto reference = geometry;
+    session.bake_sky(reference);
+    struct Space { bool linear; const char* gamut; const char* transfer; };
+    const Space spaces[] = {
+        {true, "", "srgb"}, {false, "ACEScg", "srgb"},
+        {true, "Rec.2020", "srgb"}, {true, "ACEScg", "uncharted2"},
+        {false, "", "filmic"}, {true, "", "aces"},
+    };
+    constexpr float basis = 0.28209479177387814f;
+    for (const auto& space : spaces) {
+        session.cfg.splat_color_is_linear = space.linear;
+        session.cfg.splat_color_gamut = space.gamut;
+        session.cfg.splat_color_transfer = space.transfer;
+        auto actual = geometry;
+        session.bake_sky(actual);
+        const auto color = resolve_color(session.cfg);
+        const auto matrix = spirula::gamut_to_rec709(color.splat_gamut);
+        bool matches = true;
+        for (size_t row = 0; row < actual.features_dc.size(); row += 3) {
+            float displayed[3];
+            for (int channel = 0; channel < 3; ++channel) {
+                displayed[channel] = actual.features_dc[row + channel] * basis + 0.5f;
+                if (!space.linear)
+                    displayed[channel] = colorspace::srgb_to_linear(displayed[channel]);
+            }
+            colorspace::apply3x3(matrix, displayed);
+            for (int channel = 0; channel < 3; ++channel) {
+                const float expected = reference.features_dc[row + channel] * basis + 0.5f;
+                const float rendered = colorspace::tone_encode(displayed[channel], color.splat_transfer);
+                matches &= std::isfinite(rendered) && std::fabs(rendered - expected) < 3e-5f;
+            }
+        }
+        expect(matches, std::string("sky colours retain their display value: ") +
+                           (space.linear ? "linear " : "display ") + space.gamut +
+                           " / " + space.transfer);
+    }
+}
+
 ColmapPoints3D seed_points() {
     ColmapPoints3D points;
     for (int i = 0; i < 16; i++) {
@@ -188,6 +242,33 @@ struct TestPly {
     }
     ~TestPly() { std::filesystem::remove(path); }
 };
+
+void check_resumed_sky_optimizer() {
+    TrainerSession session;
+    session.log_fn = [](const std::string&) {};
+    session.cfg.resume = "synthetic-sky-checkpoint";
+    session.cfg.create_sky_splats = false;
+    session.cfg.use_fused_proj_bwd_optim = false;
+    session.cfg.cap_max = 32;
+    session.ds.points = seed_points();
+    auto seed = session.seed_world(resolve_color(session.cfg), kSplatCount);
+    const auto before = seed;
+    spirula::sky::Rows rows;
+    spirula::sky::generate_at_radius(1.0, rows);
+    bool rejected = false;
+    try { session.add_sky_model(seed, rows); }
+    catch (const std::runtime_error&) { rejected = true; }
+    expect(rejected, "a restored sky requires the fused optimizer even when creation is disabled");
+    expect(seed.num == before.num && same_bytes(seed.means, before.means) &&
+               same_bytes(seed.quats, before.quats) && same_bytes(seed.scales, before.scales) &&
+               same_bytes(seed.opacities, before.opacities) &&
+               same_bytes(seed.features_dc, before.features_dc) &&
+               same_bytes(seed.features_sh, before.features_sh),
+           "an unsupported restored sky is rejected before modifying seeds");
+    spirula::sky::Rows none;
+    expect(session.add_sky_model(seed, none) == 0,
+           "an unfused run without sky rows remains supported");
+}
 
 void seed_case(std::ostream* out, const std::string& ply, int mode,
                bool preallocate, int degree, int cap = 64, bool verify = true,
@@ -306,7 +387,9 @@ int main(int argc, char** argv) {
     }
     std::ostream* sink = out.is_open() ? &out : nullptr;
     check_bake_images(sink);
+    check_bake_color_space();
     check_seed_layout(sink);
+    check_resumed_sky_optimizer();
     std::printf("sky_setup: %s (%d failed)\n", g_failures ? "FAILED" : "ok", g_failures);
     if (sink && !out) return 2;
     return g_failures ? 1 : 0;

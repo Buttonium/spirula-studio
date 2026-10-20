@@ -458,6 +458,9 @@ int64_t TrainerSession::add_sky_model(SeedSplats& seed, sky::Rows& rows) {
             log(lmsg::sky_skipped_no_points.get());
         return 0;
     }
+    if (!cfg.use_fused_proj_bwd_optim)
+        throw std::runtime_error(lfmt(lmsg::not_supported_yet,
+            {"--create-sky-splats without --use-fused-proj-bwd-optim"}));
     if (cfg.resume.empty())
         log(lfmt(lmsg::sky_splats_created, {(long long)count, rows.radius}));
 
@@ -490,6 +493,23 @@ int64_t TrainerSession::add_sky_model(SeedSplats& seed, sky::Rows& rows) {
 
 void TrainerSession::bake_sky(sky::Rows& rows) {
     const int64_t used = sky::bake_dataset(rows, ds, stop_requested);
+    auto color = resolve_color(cfg);
+    // Baked DC is sRGB/Rec.709.
+    color.point_gamut.clear();
+    color.point_linear = false;
+    color.point_transfer = colorspace::Transfer::Srgb;
+    if (!color.point_is_splat()) {
+        const PointToSplat to_splat(color);
+        constexpr float basis = 0.28209479177387814f;
+        for (size_t row = 0; row < rows.features_dc.size(); row += 3) {
+            float rgb[3];
+            for (int channel = 0; channel < 3; ++channel)
+                rgb[channel] = rows.features_dc[row + channel] * basis + 0.5f;
+            to_splat(rgb);
+            for (int channel = 0; channel < 3; ++channel)
+                rows.features_dc[row + channel] = (rgb[channel] - 0.5f) / basis;
+        }
+    }
     log(lfmt(lmsg::sky_colors_baked, {(long long)used}));
 }
 

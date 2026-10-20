@@ -50,6 +50,11 @@ buffers, keeping the same decoder, quarter turns and bilinear resampling.
 A resumed run restores the whole field, sky rows included, from its checkpoint
 without rebaking.
 
+The bake averages display-referred sRGB/Rec.709 samples. Before insertion,
+`TrainerCore` converts that color to the resolved splat gamut, transfer and
+storage encoding through the existing seed-color conversion. Default sRGB
+storage skips this conversion.
+
 Seed buffers include the sky's extra rows from their first allocation. Ordinary
 seeding keeps its original indices and RNG order; the live rows move backwards
 in place when the sky prefix is filled. Capacity and zero-filled padding match
@@ -64,6 +69,8 @@ finalization.
 `sky_setup_test` checks mixed PNG/TIFF loads, all quarter turns, fractional
 up/downscaling including edge pixels, decode
 failures and reserved seed layouts against ordinary point/PLY seeding.
+It also checks display-color preservation across splat color spaces and
+rejects an unfused optimizer when a checkpoint supplies sky rows.
 `--benchmark-seeds` exercises a one-million-row seed capacity. Both tests accept
 `--snapshot <file>` to write their buffers for before/after comparison.
 
@@ -100,3 +107,5 @@ Sky splats require the fused projection-bwd+optim path
 the block-level freeze. `train_config_unsupported()` refuses
 `--create-sky-splats` together with the non-fused optimizer (the
 `academic-baseline` preset) rather than half-supporting it.
+Insertion also validates the actual prefix, so disabling creation on resume
+does not bypass the optimizer requirement for restored sky rows.
