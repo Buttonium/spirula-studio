@@ -108,6 +108,7 @@ int main(int argc, char** argv) {
     std::vector<float> acc;    // tight floats
     std::vector<float> lacc;   // loose floats (sampling/noise downstream)
     std::vector<int32_t> codes;
+    bool frozen_ok = true;
 
     // ---- densify_clip_scale (tight) ----
     {
@@ -126,7 +127,7 @@ int main(int argc, char** argv) {
             densify_clip_scale_tensor(N, dv<float>(d_radii, N),
                                       dv<float3>(d_scales, N),
                                       c[3] != 0.f ? d_opacs : nullptr, c[0],
-                                      c[1], c[2]);
+                                      c[1], c[2], /*first_trainable_splat=*/0);
             backend::device_synchronize();
             readback_f(acc, d_scales, 3 * N);
             readback_f(acc, d_opacs, N);
@@ -150,7 +151,7 @@ int main(int argc, char** argv) {
         float* d_opacs = upload(opacs);
         mcmc_add_noise_tensor(N, 2e-2f, dv<float3>(d_means, N),
                               dv<float3>(d_scales, N), dv<float4>(d_quats, N),
-                              dv<float>(d_opacs, N));
+                              dv<float>(d_opacs, N), /*first_trainable_splat=*/0);
         backend::device_synchronize();
         readback_f(lacc, d_means, 3 * N);
 
@@ -160,9 +161,43 @@ int main(int argc, char** argv) {
                                  dv<float3>(d_means2, N),
                                  dv<float3>(d_scales, N),
                                  dv<float4>(d_quats, N),
-                                 dv<float>(d_opacs, N));
+                                 dv<float>(d_opacs, N), /*first_trainable_splat=*/0);
         backend::device_synchronize();
         readback_f(lacc, d_means2, 3 * N);
+
+        {
+            const int64_t frozen = N / 4;
+            std::vector<float> fmeans = means, fscales = scales, fopacs = opacs;
+            float* d_fm = upload(fmeans);
+            float* d_fs = upload(fscales);
+            float* d_fq = upload(quats);
+            float* d_fo = upload(fopacs);
+            float* d_fr = upload(radii);
+            mcmc_add_noise_tensor(N, 2e-2f, dv<float3>(d_fm, N),
+                                  dv<float3>(d_fs, N), dv<float4>(d_fq, N),
+                                  dv<float>(d_fo, N), frozen);
+            revised_add_noise_tensor(N, 5e-2f, dv<float>(d_fr, N),
+                                     dv<float3>(d_fm, N), dv<float3>(d_fs, N),
+                                     dv<float4>(d_fq, N), dv<float>(d_fo, N),
+                                     frozen);
+            backend::device_synchronize();
+            std::vector<float> got_m(fmeans.size()), got_s(fscales.size()),
+                got_o(fopacs.size());
+            backend::memcpy_sync(got_m.data(), d_fm, got_m.size() * 4,
+                                 MemcpyKind::DeviceToHost);
+            backend::memcpy_sync(got_s.data(), d_fs, got_s.size() * 4,
+                                 MemcpyKind::DeviceToHost);
+            backend::memcpy_sync(got_o.data(), d_fo, got_o.size() * 4,
+                                 MemcpyKind::DeviceToHost);
+            for (int64_t i = 0; i < 3 * frozen; i++) {
+                frozen_ok &= std::memcmp(&got_m[i], &means[i], 4) == 0;
+                frozen_ok &= std::memcmp(&got_s[i], &scales[i], 4) == 0;
+            }
+            for (int64_t i = 0; i < frozen; i++)
+                frozen_ok &= std::memcmp(&got_o[i], &opacs[i], 4) == 0;
+            if (!frozen_ok)
+                std::printf("densify_parity: noise touched the frozen prefix\n");
+        }
     }
 
     // ---- long-axis-split relocate/add + MCMC relocate/add ----
@@ -407,7 +442,8 @@ int main(int argc, char** argv) {
                                             m.sh_value_bytes),
             dv<float2>(m.sh_value_bounds, m.sh_value_bound_f / 2),
             m.sh_value_bits, m.bounds_per_splat, (int)m.num_sh_buffer, m.nq,
-            seed, /*max_relocate=*/0, /*num_dead_out=*/nullptr);
+            seed, /*max_relocate=*/0, /*num_dead_out=*/nullptr,
+            /*first_trainable_splat=*/0);
         backend::device_synchronize();
     };
 
@@ -476,7 +512,7 @@ int main(int argc, char** argv) {
                                             m.sh_value_bytes),
             dv<float2>(m.sh_value_bounds, m.sh_value_bound_f / 2),
             m.sh_value_bits, m.bounds_per_splat, (int)m.num_sh_buffer, m.nq,
-            seed, DeviceVector<float>());
+            seed, DeviceVector<float>(), /*first_trainable_splat=*/0);
         backend::device_synchronize();
     };
 
@@ -510,7 +546,7 @@ int main(int argc, char** argv) {
                                             m.sh_value_bytes),
             dv<float2>(m.sh_value_bounds, m.sh_value_bound_f / 2),
             m.sh_value_bits, m.bounds_per_splat, (int)m.num_sh_buffer, m.nq,
-            seed, DeviceVector<float>());
+            seed, DeviceVector<float>(), /*first_trainable_splat=*/0);
         backend::device_synchronize();
     };
 
@@ -756,7 +792,7 @@ int main(int argc, char** argv) {
         std::printf("densify_parity: dumped %lld + %lld floats + %lld codes "
                     "to %s\n",
                     (long long)nf, (long long)nl, (long long)nc, argv[2]);
-        return revived_ok && inherit_ok ? 0 : 1;
+        return revived_ok && inherit_ok && frozen_ok ? 0 : 1;
     }
 
     // Diagnostics: DENSIFY_DUMP_GOT=<path> writes this run's outputs in the
@@ -842,7 +878,7 @@ int main(int argc, char** argv) {
         lmax, (long long)lviol, 100.0 * lfrac, (long long)nc,
         (long long)max_c, (long long)cviol, 100.0 * cfrac);
     bool pass = ffrac <= 1e-3 && lfrac <= 2e-2 && cfrac <= 2e-2 && revived_ok &&
-                inherit_ok;
+                inherit_ok && frozen_ok;
     std::printf(pass ? "densify_parity: PASSED\n"
                      : "densify_parity: FAILED\n");
     return pass ? 0 : 1;

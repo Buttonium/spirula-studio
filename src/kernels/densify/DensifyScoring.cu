@@ -153,10 +153,11 @@ __global__ void densify_clip_scale_kernel(
     float max_scale3d,
     const float* __restrict__ radii,
     float3* __restrict__ log_scales,
-    float* __restrict__ logit_opacs
+    float* __restrict__ logit_opacs,
+    long first_trainable_splat
 ) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= num_splats)
+    if (idx >= num_splats || (long)idx < first_trainable_splat)
         return;
 
     if (isfinite(max_scale2d)) {
@@ -189,13 +190,15 @@ void densify_clip_scale_tensor(
     float* logit_opacs_ptr,
     float max_scale2d,
     float clip_hardness,
-    float max_scale3d
+    float max_scale3d,
+    int64_t first_trainable_splat
 ) {
     densify_clip_scale_kernel<<<_LAUNCH_ARGS_1D(num_splats, 256)>>>(
         num_splats, max_scale2d, clip_hardness, max_scale3d,
         radii.data_ptr(),
         log_scales.data_ptr(),
-        logit_opacs_ptr
+        logit_opacs_ptr,
+        (long)first_trainable_splat
     );
     CHECK_DEVICE_ERROR(cudaGetLastError());
 }
@@ -222,11 +225,18 @@ __global__ void densify_update_weight_kernel(
     float score_power,  // exponent on this step's score, before the accumulator
     float2* __restrict__ accum_buffer,  // [N, 2]
     float max_scale2d,  // on-screen size limit for the oversize accumulator
-    float* __restrict__ oversize_accum  // [N], null to skip
+    float* __restrict__ oversize_accum,  // [N], null to skip
+    long first_trainable_splat
 ) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_splats)
         return;
+
+    // Frozen rows score 0, so no draw can pick them.
+    if ((long)idx < first_trainable_splat) {
+        accum_buffer[idx] = make_float2(0.0f, 0.0f);
+        return;
+    }
 
     if (!(radii[idx] > 0))
         return;
@@ -538,7 +548,8 @@ void densify_update_weight(
     DeviceVector<float2> accum_buffer,
     int score_mode,
     float max_scale2d,
-    DeviceVector<float> oversize_accum
+    DeviceVector<float> oversize_accum,
+    int64_t first_trainable_splat
 ) {
     densify_update_weight_kernel<<<_LAUNCH_ARGS_1D(num_splats, 256)>>>(
         num_splats, score_mode,
@@ -552,7 +563,8 @@ void densify_update_weight(
         score_power,
         accum_buffer.data_ptr(),
         max_scale2d,
-        oversize_accum.data_ptr()
+        oversize_accum.data_ptr(),
+        (long)first_trainable_splat
     );
     CHECK_DEVICE_ERROR(cudaGetLastError());
 }
@@ -566,11 +578,17 @@ __global__ void densify_oversize_weight_kernel(
     float blend,
     const float* __restrict__ oversize_accum,  // [N]
     const float2* __restrict__ score,          // [N, 2], lane 0 = error score
-    float2* __restrict__ out                   // [N, 2], lane 0 = weight
+    float2* __restrict__ out,                  // [N, 2], lane 0 = weight
+    long first_trainable_splat
 ) {
     long idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= num_splats)
         return;
+    // The floor is nonzero, so frozen rows need an explicit zero.
+    if (idx < first_trainable_splat) {
+        out[idx] = make_float2(0.0f, 0.0f);
+        return;
+    }
     constexpr float kOversizeFloor = 1e-3f;
     float s = fmaxf(score[idx].x, 0.0f);
     float w = oversize_accum[idx] + kOversizeFloor;
@@ -585,12 +603,14 @@ void densify_oversize_weight_tensor(
     float blend,
     DeviceVector<float> oversize_accum,
     DeviceVector<float2> score,
-    DeviceVector<float2> out
+    DeviceVector<float2> out,
+    int64_t first_trainable_splat
 ) {
     if (num_splats <= 0)
         return;
     densify_oversize_weight_kernel<<<_LAUNCH_ARGS_1D(num_splats, 256)>>>(
         (long)num_splats, blend,
-        oversize_accum.data_ptr(), score.data_ptr(), out.data_ptr());
+        oversize_accum.data_ptr(), score.data_ptr(), out.data_ptr(),
+        (long)first_trainable_splat);
     CHECK_DEVICE_ERROR(cudaGetLastError());
 }

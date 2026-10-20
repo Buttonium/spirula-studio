@@ -326,7 +326,7 @@ int main(int argc, char** argv) {
                 dv_f(d_w1, N),
                 c[2] ? dv_f(d_w2, N) : DeviceVector<float>{},
                 c[2] ? 0.3f : 0.f, 0.1f * (float)c[3], dv_f2(d_accum, N),
-                c[0], 5.0f, dv_f(d_over, N));
+                c[0], 5.0f, dv_f(d_over, N), /*first_trainable_splat=*/0);
             backend::device_synchronize();
             readback_f(acc, d_accum, N * 2);
             readback_f(acc, d_over, N);
@@ -337,7 +337,8 @@ int main(int argc, char** argv) {
             densify_update_weight(N, dv_f(d_radii, N), nullptr, d_opacs,
                                   dv_f(d_w1, N), DeviceVector<float>{}, 0.f,
                                   1.0f, dv_f2(d_accum, N), 2, 5.0f,
-                                  DeviceVector<float>{});
+                                  DeviceVector<float>{},
+                                  /*first_trainable_splat=*/0);
             backend::device_synchronize();
             std::vector<float> got(N * 2);
             backend::memcpy_sync(got.data(), d_accum, N * 2 * 4,
@@ -360,7 +361,8 @@ int main(int argc, char** argv) {
             for (float blend : {0.0f, 0.5f, 1.0f}) {
                 densify_oversize_weight_tensor(N, blend, dv_f(d_over, N),
                                                dv_f2(d_sc, N),
-                                               dv_f2(d_out, N));
+                                               dv_f2(d_out, N),
+                                               /*first_trainable_splat=*/0);
                 backend::device_synchronize();
                 readback_f(acc, d_out, N * 2);
             }

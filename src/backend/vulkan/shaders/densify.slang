@@ -66,7 +66,7 @@ struct DensifyUpdateWeightParams {  // 88 bytes: pushed directly
     uint wgs_per_row;
     float max_scale2d;
     uint use_oversize;
-    uint _pad0;
+    uint first_trainable_splat;
 };
 
 [shader("compute")]
@@ -75,6 +75,12 @@ void densify_update_weight(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
                            uniform DensifyUpdateWeightParams p) {
     uint idx = (wg.y * p.wgs_per_row + wg.x) * 256 + tid;
     if (idx >= p.num_splats) return;
+
+    // Frozen rows score 0, so no draw can pick them.
+    if (idx < p.first_trainable_splat) {
+        p.accum_buffer[idx] = float2(0.0f, 0.0f);
+        return;
+    }
     if (!(p.radii[idx] > 0.0f)) return;
 
     if (p.use_oversize != 0 && p.radii[idx] > p.max_scale2d)
@@ -122,14 +128,14 @@ void densify_update_weight(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
 // densify_oversize_weight
 // ---------------------------------------------------------------------------
 
-struct DensifyOversizeWeightParams {  // 32 bytes: pushed directly
+struct DensifyOversizeWeightParams {  // 40 bytes: pushed directly
     float* oversize_accum;  // [N]
     float2* score;          // [N, 2], lane 0 = error score
     float2* out;            // [N, 2], lane 0 = weight
     float blend;
     uint num_splats;
     uint wgs_per_row;
-    uint _pad0;
+    uint first_trainable_splat;
 };
 
 [shader("compute")]
@@ -138,6 +144,11 @@ void densify_oversize_weight(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
                              uniform DensifyOversizeWeightParams p) {
     uint idx = (wg.y * p.wgs_per_row + wg.x) * 256 + tid;
     if (idx >= p.num_splats) return;
+    // The floor is nonzero, so frozen rows need an explicit zero.
+    if (idx < p.first_trainable_splat) {
+        p.out[idx] = float2(0.0f, 0.0f);
+        return;
+    }
     const float kOversizeFloor = 1e-3f;
     float s = max(p.score[idx].x, 0.0f);
     float w = p.oversize_accum[idx] + kOversizeFloor;
@@ -151,7 +162,7 @@ void densify_oversize_weight(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
 // densify_clip_scale
 // ---------------------------------------------------------------------------
 
-struct DensifyClipScaleParams {  // 48 bytes: pushed directly
+struct DensifyClipScaleParams {  // 56 bytes: pushed directly
     float* radii;        // [N]
     float* log_scales;   // [N, 3]
     float* logit_opacs;  // [N] (has_opacs gates; fallback-backed)
@@ -161,6 +172,7 @@ struct DensifyClipScaleParams {  // 48 bytes: pushed directly
     uint has_opacs;
     uint num_splats;
     uint wgs_per_row;
+    uint first_trainable_splat;
 };
 
 [shader("compute")]
@@ -168,7 +180,7 @@ struct DensifyClipScaleParams {  // 48 bytes: pushed directly
 void densify_clip_scale(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
                         uniform DensifyClipScaleParams p) {
     uint idx = (wg.y * p.wgs_per_row + wg.x) * 256 + tid;
-    if (idx >= p.num_splats) return;
+    if (idx >= p.num_splats || idx < p.first_trainable_splat) return;
 
     if (_dn_finitef(p.max_scale2d)) {
         float oversize_factor = p.radii[idx] / p.max_scale2d;
@@ -201,7 +213,7 @@ void densify_clip_scale(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
 // MCMC / revised noise (canonical device code from ../densify.slang)
 // ---------------------------------------------------------------------------
 
-struct DensifyNoiseParams {  // 48 bytes: pushed directly
+struct DensifyNoiseParams {  // 56 bytes: pushed directly
     float* means;       // [N, 3] updated in place
     float* log_scales;  // [N, 3]
     float* quats;       // [N, 4]
@@ -210,6 +222,7 @@ struct DensifyNoiseParams {  // 48 bytes: pushed directly
     float scaler;
     uint num_splats;
     uint wgs_per_row;
+    uint first_trainable_splat;
 };
 
 [shader("compute")]
@@ -217,7 +230,7 @@ struct DensifyNoiseParams {  // 48 bytes: pushed directly
 void densify_mcmc_add_noise(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
                             uniform DensifyNoiseParams p) {
     uint idx = (wg.y * p.wgs_per_row + wg.x) * 256 + tid;
-    if (idx >= p.num_splats) return;
+    if (idx >= p.num_splats || idx < p.first_trainable_splat) return;
     float3 mean = float3(p.means[3 * idx], p.means[3 * idx + 1],
                          p.means[3 * idx + 2]);
     float3 log_scale = float3(p.log_scales[3 * idx], p.log_scales[3 * idx + 1],
@@ -237,7 +250,7 @@ void densify_revised_add_noise(uint3 wg: SV_GroupID,
                                uint tid: SV_GroupThreadID,
                                uniform DensifyNoiseParams p) {
     uint idx = (wg.y * p.wgs_per_row + wg.x) * 256 + tid;
-    if (idx >= p.num_splats) return;
+    if (idx >= p.num_splats || idx < p.first_trainable_splat) return;
     float3 mean = float3(p.means[3 * idx], p.means[3 * idx + 1],
                          p.means[3 * idx + 2]);
     float3 log_scale = float3(p.log_scales[3 * idx], p.log_scales[3 * idx + 1],
@@ -452,7 +465,7 @@ void densify_efraimidis_keys(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
 // arbitrary; parity tests compare relocated rows as a multiset.
 // ---------------------------------------------------------------------------
 
-struct RelocMaskParams {  // 80 bytes: pushed directly
+struct RelocMaskParams {  // 96 bytes: pushed directly
     float* means;        // [N, 3]
     float* quats;        // [N, 4]
     float* scales;       // [N, 3]
@@ -466,6 +479,7 @@ struct RelocMaskParams {  // 80 bytes: pushed directly
     uint num_splats;
     uint wgs_per_row;
     uint dead_after_steps;
+    uint first_trainable_splat;
 };
 
 [shader("compute")]
@@ -474,6 +488,11 @@ void densify_reloc_mask(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
                         uniform RelocMaskParams p) {
     uint idx = (wg.y * p.wgs_per_row + wg.x) * 256 + tid;
     if (idx >= p.num_splats) return;
+
+    if (idx < p.first_trainable_splat) {
+        p.mask[idx] = 1;
+        return;
+    }
 
     float3 mean = float3(p.means[3 * idx], p.means[3 * idx + 1],
                          p.means[3 * idx + 2]);
@@ -848,7 +867,7 @@ struct McmcProbsParams {  // 56 bytes: pushed directly
     float* opacs; float* scales; float* probs;
     float* weight;   // [N] (use_weight gates): scales a live splat's draw
     float min_opacity; uint num_splats; uint wgs_per_row; uint use_weight;
-    uint _pad0, _pad1;
+    uint first_trainable_splat, _pad1;
 };
 
 [shader("compute")]
@@ -857,6 +876,11 @@ void densify_mcmc_probs(uint3 wg: SV_GroupID, uint tid: SV_GroupThreadID,
                         uniform McmcProbsParams p) {
     uint idx = (wg.y * p.wgs_per_row + wg.x) * 256 + tid;
     if (idx >= p.num_splats) return;
+
+    if (idx < p.first_trainable_splat) {
+        p.probs[idx] = 0.0f;
+        return;
+    }
     float opac = _dn_sigmoid(p.opacs[idx]);
     float3 scale = float3(p.scales[3 * idx], p.scales[3 * idx + 1],
                           p.scales[3 * idx + 2]);
@@ -876,7 +900,7 @@ struct McmcRelocIndexMapParams {  // 48 bytes: pushed directly
     uint numel;
     uint seed;
     uint wgs_per_row;
-    uint _pad0;
+    uint first_trainable_splat;
 };
 
 [shader("compute")]
@@ -887,6 +911,12 @@ void densify_mcmc_reloc_index_map(uint3 wg: SV_GroupID,
     uint block_lin = wg.y * p.wgs_per_row + wg.x;
     uint idx = block_lin * 256 + tid;
     if (idx >= p.numel) return;
+
+    // A frozen row maps to itself (probability 0 reads as dead below).
+    if (idx < p.first_trainable_splat) {
+        p.index_map[idx] = int(idx);
+        return;
+    }
 
     float prob = p.sample_probs[idx];
 

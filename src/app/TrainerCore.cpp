@@ -1,6 +1,8 @@
 // TrainerCore.cpp -- see TrainerCore.h.
 
 #include "app/TrainerCore.h"
+#include "app/SkyModel.h"
+#include "app/SkyBake.h"
 #include "backend/api/BackendRuntime.h"
 #include "core/Env.h"
 #include "core/SphericalBeta.h"
@@ -32,6 +34,7 @@
 #include <ftw.h>
 #endif
 
+#include "external/stb_image.h"
 #include "external/stb_image_write.h"
 
 #include <algorithm>
@@ -217,7 +220,7 @@ private:
 };
 
 SeedSplats seed_splats(const ColmapPoints3D& pts, const TrainConfig& cfg,
-                       const ColorResolution& color) {
+                       const ColorResolution& color, int64_t extra_rows) {
     std::mt19937 rng(42);
     std::normal_distribution<float> gauss(0.f, 1.f);
     std::uniform_real_distribution<float> uni(0.f, 1.f);
@@ -247,8 +250,8 @@ SeedSplats seed_splats(const ColmapPoints3D& pts, const TrainConfig& cfg,
     }
     const int64_t n_distinct = std::min<int64_t>((int64_t)pick.size(), n_src);
     const int64_t num = (int64_t)pick.size();
-    const int64_t cap = cfg.preallocate_splat_tensors
-        ? std::max<int64_t>(num, cfg.cap_max) : num;
+    const int64_t cap = (cfg.preallocate_splat_tensors
+        ? std::max<int64_t>(num, cfg.cap_max) : num) + extra_rows;
     const ColorBasis basis{cfg.sh_degree, cfg.sb_lobes};
     const int64_t K = basis.coeffs();
 
@@ -311,7 +314,7 @@ SeedSplats seed_splats(const ColmapPoints3D& pts, const TrainConfig& cfg,
 }
 
 SeedSplats seed_splats_from_ply(const std::string& path, const TrainConfig& cfg,
-                                const ColorResolution& color) {
+                                const ColorResolution& color, int64_t extra_rows) {
     constexpr float kSHC0 = 0.28209479177387814f;  // band-0 SH, colour <-> DC
     if (!is_splat_ply(path))
         throw std::runtime_error(
@@ -334,8 +337,8 @@ SeedSplats seed_splats_from_ply(const std::string& path, const TrainConfig& cfg,
     }
 
     const int64_t num = (int64_t)pick.size();
-    const int64_t cap = cfg.preallocate_splat_tensors
-        ? std::max<int64_t>(num, cfg.cap_max) : num;
+    const int64_t cap = (cfg.preallocate_splat_tensors
+        ? std::max<int64_t>(num, cfg.cap_max) : num) + extra_rows;
     const ColorBasis basis{cfg.sh_degree, cfg.sb_lobes};
     const int64_t K = basis.coeffs();
     const int64_t K_src = src.coeffs();
@@ -400,7 +403,8 @@ SeedSplats seed_splats_from_ply(const std::string& path, const TrainConfig& cfg,
 }
 
 void append_point_seeds(SeedSplats& s, const ColmapPoints3D& pts,
-                        const TrainConfig& cfg, const ColorResolution& color) {
+                        const TrainConfig& cfg, const ColorResolution& color,
+                        int64_t extra_rows) {
     const int64_t room = (int64_t)cfg.cap_max - s.num;
     if (room <= 0 || pts.num() == 0) return;
 
@@ -413,13 +417,18 @@ void append_point_seeds(SeedSplats& s, const ColmapPoints3D& pts,
 
     const int64_t K = ColorBasis{cfg.sh_degree, cfg.sb_lobes}.coeffs();
     const int64_t at = s.num, total = s.num + p.num;
-    if ((int64_t)s.opacities.size() < total) {
-        s.means.resize((size_t)total * 3, 0.f);
-        s.quats.resize((size_t)total * 4, 0.f);
-        s.scales.resize((size_t)total * 3, 0.f);
-        s.opacities.resize((size_t)total, 0.f);
-        s.features_dc.resize((size_t)total * 3, 0.f);
-        s.features_sh.resize((size_t)total * K * 3, 0.f);
+    const size_t capacity = (size_t)(total + extra_rows);
+    if (s.opacities.size() < capacity) {
+        const auto grow = [extra_rows](std::vector<float>& values, size_t size) {
+            if (extra_rows > 0) values.reserve(size);
+            values.resize(size, 0.f);
+        };
+        grow(s.means, capacity * 3);
+        grow(s.quats, capacity * 4);
+        grow(s.scales, capacity * 3);
+        grow(s.opacities, capacity);
+        grow(s.features_dc, capacity * 3);
+        grow(s.features_sh, capacity * K * 3);
     }
     for (int64_t i = 0; i < p.num; i++) {
         for (int d = 0; d < 3; d++) {
@@ -435,6 +444,53 @@ void append_point_seeds(SeedSplats& s, const ColmapPoints3D& pts,
                 s.features_sh[((at + i)*K + k)*3 + d] = p.features_sh[(i*K + k)*3 + d];
     }
     s.num = total;
+}
+
+
+// ===========================================================================
+// Sky model (--create-sky-splats)
+// ===========================================================================
+
+int64_t TrainerSession::add_sky_model(SeedSplats& seed, sky::Rows& rows) {
+    const int64_t count = (int64_t)rows.opacities.size();
+    if (count == 0) {
+        if (cfg.resume.empty() && cfg.create_sky_splats)
+            log(lmsg::sky_skipped_no_points.get());
+        return 0;
+    }
+    if (cfg.resume.empty())
+        log(lfmt(lmsg::sky_splats_created, {(long long)count, rows.radius}));
+
+    if (cfg.resume.empty()) bake_sky(rows);
+
+    const int64_t K = ColorBasis{cfg.sh_degree, cfg.sb_lobes}.coeffs();
+    const auto shift = [&](std::vector<float>& values, int64_t width) {
+        const size_t live = (size_t)(seed.num * width);
+        const size_t end = live + (size_t)(count * width);
+        if (values.size() < end)
+            throw std::runtime_error("sky prefix exceeds reserved seed capacity");
+        std::move_backward(values.begin(), values.begin() + live, values.begin() + end);
+    };
+    shift(seed.means, 3);
+    shift(seed.quats, 4);
+    shift(seed.scales, 3);
+    shift(seed.opacities, 1);
+    shift(seed.features_dc, 3);
+    shift(seed.features_sh, K * 3);
+    std::copy(rows.means.begin(), rows.means.end(), seed.means.begin());
+    std::copy(rows.quats.begin(), rows.quats.end(), seed.quats.begin());
+    std::copy(rows.scales.begin(), rows.scales.end(), seed.scales.begin());
+    std::copy(rows.opacities.begin(), rows.opacities.end(), seed.opacities.begin());
+    std::copy(rows.features_dc.begin(), rows.features_dc.end(), seed.features_dc.begin());
+    std::fill_n(seed.features_sh.begin(), (size_t)(count * K * 3), 0.0f);
+    seed.num += count;
+    return count;
+}
+
+
+void TrainerSession::bake_sky(sky::Rows& rows) {
+    const int64_t used = sky::bake_dataset(rows, ds, stop_requested);
+    log(lfmt(lmsg::sky_colors_baked, {(long long)used}));
 }
 
 
@@ -754,6 +810,9 @@ std::string train_config_unsupported(const TrainConfig& c) {
         return lmsg::bad_quantization_level.get();
     if (c.sb_lobes < 0 || c.sb_lobes > ColorBasis::kMaxSbLobes)
         return lfmt(lmsg::bad_sb_lobes, {ColorBasis::kMaxSbLobes});
+    // Only the fused optimizer freezes sky rows.
+    if (c.create_sky_splats && !c.use_fused_proj_bwd_optim)
+        return not_impl("--create-sky-splats without --use-fused-proj-bwd-optim");
 #ifndef SS_BACKEND_VULKAN
     if (c.sb_lobes > 0) return lmsg::sb_lobes_need_vulkan.get();
 #endif
@@ -1205,7 +1264,23 @@ void TrainerSession::setup_engine() {
     engine_reset();
 
     ColorResolution color = resolve_color(cfg);
-    SeedSplats seed = seed_world(color);
+    sky::Rows sky_rows;
+    if (!cfg.resume.empty()) {
+        const auto checkpoint = ckpt::resolve_checkpoint(cfg.resume);
+        const JsonValue state = ckpt::read_state_json(checkpoint.ckpt_dir);
+        const JsonValue* saved = state.find("num_sky_splats");
+        const int64_t count = saved ? saved->as_int() : 0;
+        if (count != 0) {
+            if (count != sky::kSplatCount)
+                throw std::runtime_error("resume checkpoint has an unsupported sky prefix size");
+            sky::generate_at_radius(1.0, sky_rows);
+        }
+    } else if (cfg.create_sky_splats) {
+        sky::generate(ds.points.xyz.data(), ds.points.num(), sky_rows);
+    }
+    SeedSplats seed = seed_world(color, (int64_t)sky_rows.opacities.size());
+    const int64_t num_sky = add_sky_model(seed, sky_rows);
+    sky_rows = {};
     int64_t cap = (int64_t)seed.opacities.size();
     const int64_t K = ColorBasis{cfg.sh_degree, cfg.sb_lobes}.coeffs();
     auto tv = [](std::vector<float>& v, std::vector<int64_t> shape) -> TorchTensorView {
@@ -1218,7 +1293,8 @@ void TrainerSession::setup_engine() {
                   tv(seed.opacities,   {cap, 1}),
                   tv(seed.features_dc, {cap, 3}),
                   tv(seed.features_sh, {cap, K, 3}),
-                  cfg.sb_lobes);
+                  cfg.sb_lobes,
+                  num_sky);
 
     // Binning granularity for the splat-tile intersection (0 = automatic).
     engine_set_bin_tile_size(cfg.bin_tile_size);
@@ -1367,10 +1443,11 @@ void TrainerSession::setup_engine() {
     st = RunState{};
     st.train_frame_scale = ds.train_frame_scale;
     st.steps_per_epoch   = _batches_per_epoch;
+    st.num_sky_splats    = num_sky;
     if (cfg.progressive_resolution && cfg.progressive_splat_budget) {
         // Per stage on the requested switches, then moved to the epoch boundaries the
         // stages really start at; stages that land together keep the later value.
-        const int64_t seeded = engine_get_cur_num_splats();
+        const int64_t seeded = engine_get_cur_num_splats() - st.num_sky_splats;
         progressive::Budget budget = progressive::resolve_budget(resolution_setpoints(cfg),
             cfg.progressive_splat_budget_schedule, seeded, cfg.cap_max);
         if (cfg.progressive_splat_budget_schedule.find(':') == std::string::npos) {
@@ -1381,7 +1458,8 @@ void TrainerSession::setup_engine() {
         const int stop = std::max(cfg.refine_stop_iter, cfg.num_iterations - cfg.refine_stop_num_iter);
         int64_t before = 0;
         for (const auto& [from, splats] : budget) {
-            st.growth_caps.emplace_back((int)std::min<int64_t>(from, INT_MAX), splats);
+            st.growth_caps.emplace_back((int)std::min<int64_t>(from, INT_MAX),
+                                        splats + st.num_sky_splats);
             log(lfmt(lmsg::splat_budget_stage, {(long long)splats, (long long)from}));
             if (from >= stop && splats > before)
                 log(lfmt(lmsg::splat_budget_late, {(long long)splats, (long long)from, (long long)stop}));
@@ -1461,19 +1539,27 @@ void TrainerSession::setup_engine() {
     // appearance channel the checkpoint carries must already exist as a
     // restore target, which is what everything above establishes.
     if (!cfg.resume.empty()) restore_checkpoint();
+
+    if (const int64_t after = engine_get_num_sky_splats(); after != st.num_sky_splats) {
+        if (num_sky > 0 && after == 0)
+            log(lmsg::sky_resume_ignored.get());
+        for (auto& entry : st.growth_caps)
+            entry.second += after - st.num_sky_splats;
+        st.num_sky_splats = after;
+    }
 }
 
 // Where the run's first splats come from: the dataset's point cloud, an
 // --init-ply warm start, or both. A resume overwrites them either way.
-SeedSplats TrainerSession::seed_world(const ColorResolution& color) {
+SeedSplats TrainerSession::seed_world(const ColorResolution& color, int64_t extra_rows) {
     if (cfg.init_ply.empty() || !cfg.resume.empty())
-        return seed_splats(ds.points, cfg, color);
+        return seed_splats(ds.points, cfg, color, extra_rows);
 
     // A run or checkpoint directory resolves to its splat.ply, as --resume does.
     const std::string ply = find_splat_ply(cfg.init_ply).first;
-    SeedSplats s = seed_splats_from_ply(ply, cfg, color);
+    SeedSplats s = seed_splats_from_ply(ply, cfg, color, extra_rows);
     const int64_t from_ply = s.num;
-    if (cfg.init_ply_add_points) append_point_seeds(s, ds.points, cfg, color);
+    if (cfg.init_ply_add_points) append_point_seeds(s, ds.points, cfg, color, extra_rows);
     log(lfmt(lmsg::seeded_from_ply,
              {ply, (long long)from_ply, (long long)(s.num - from_ply)}));
     return s;

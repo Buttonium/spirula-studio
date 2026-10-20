@@ -38,6 +38,7 @@ static inline DeviceVector<T> _dv_flat(const TorchTensorView& tv) {
 int engine_densify_step(int step, int max_steps, const DensifyConfig& cfg) {
     int64_t cur_num_splats = engine().cur_num_splats;
     int64_t max_num_splats = engine().max_num_splats;
+    const int64_t first_trainable = engine().num_sky_splats;
     bool quantize_sh = engine().optim.sh_quantize_enabled();
     const int sh_optim_bits = engine().optim.sh_optim_bits;
     // The 4-bit (joint-nibble) path is wired through both _zero_quant_sh_for_splat
@@ -220,7 +221,8 @@ int engine_densify_step(int step, int max_steps, const DensifyConfig& cfg) {
             nullptr,  // don't clip opacities
             cfg.max_screen_size,
             cfg.max_screen_size_clip_hardness,
-            cfg.max_world_size
+            cfg.max_world_size,
+            first_trainable
         );
     }
 
@@ -270,7 +272,8 @@ int engine_densify_step(int step, int max_steps, const DensifyConfig& cfg) {
             dv_accum_buf,
             cfg.score_mode,
             cfg.max_screen_size,
-            dv_oversize
+            dv_oversize,
+            first_trainable
         );
 
         // Clipping above the q-quantile leaves that quantile where it was, so
@@ -307,9 +310,11 @@ int engine_densify_step(int step, int max_steps, const DensifyConfig& cfg) {
         region_weight_tensor(cur_num_splats, dv_means, dv_quats, dv_scales, region.camera_bvh,
                              region.camera_seeds, region.pattern, (uint32_t)step,
                              region.program, region.field_bvh, region.field_seeds,
-                             region.inside, region.outside, region.weight);
+                             region.inside, region.outside, region.weight,
+                             first_trainable);
         // Before the relocation below, so what fades past dead moves inside.
-        region_decay_opacity_tensor(cur_num_splats, region.weight, dv_opacs, region.opacity_decay);
+        region_decay_opacity_tensor(cur_num_splats, region.weight, dv_opacs, region.opacity_decay,
+                                    first_trainable);
         if (use_revised) {
             auto& score = engine().optim.densify_sample_score;
             if (score.data_ptr() == nullptr) {
@@ -353,7 +358,8 @@ int engine_densify_step(int step, int max_steps, const DensifyConfig& cfg) {
             sh_value_bits, sh_value_bounds_per_splat, num_sh_buffer,
             non_sh,
             2 * step + 0,
-            split_budget, &num_dead
+            split_budget, &num_dead,
+            first_trainable
         );
 
         // Add more splats
@@ -394,7 +400,8 @@ int engine_densify_step(int step, int max_steps, const DensifyConfig& cfg) {
                                  cur_num_splats);
                 densify_oversize_weight_tensor(
                     cur_num_splats, cfg.oversize_score_blend, dv_oversize,
-                    dv_score.data_ptr() ? dv_score : dv_accum_buf, dv_over_w);
+                    dv_score.data_ptr() ? dv_score : dv_accum_buf, dv_over_w,
+                    first_trainable);
                 add_split(cur_num_splats, n_oversize, dv_over_w,
                           2 * step + 1 + 0x5bf03635u);
                 // The split kernel carries accum_buf src -> dst but not the
@@ -422,7 +429,7 @@ int engine_densify_step(int step, int max_steps, const DensifyConfig& cfg) {
             sh_value_bits, sh_value_bounds_per_splat, num_sh_buffer,
             non_sh,
             2 * step + 0
-        , engine().region.weight);
+        , engine().region.weight, first_trainable);
 
         // MCMC sample add
         int64_t n_target = densify_target(cfg, cur_num_splats, densify_cap_at(cfg, step, max_num_splats));
@@ -440,7 +447,7 @@ int engine_densify_step(int step, int max_steps, const DensifyConfig& cfg) {
                 sh_value_bits, sh_value_bounds_per_splat, num_sh_buffer,
                 non_sh,
                 2 * step + 1
-            , engine().region.weight);
+            , engine().region.weight, first_trainable);
         }
     }
 
@@ -459,11 +466,13 @@ int engine_densify_step(int step, int max_steps, const DensifyConfig& cfg) {
         if (use_revised) {
             revised_add_noise_tensor(
                 cur_num_splats + num_added, noise_scalar,
-                dv_radii, dv_means, dv_scales, dv_quats, dv_opacs);
+                dv_radii, dv_means, dv_scales, dv_quats, dv_opacs,
+                first_trainable);
         } else {
             mcmc_add_noise_tensor(
                 cur_num_splats + num_added, noise_scalar,
-                dv_means, dv_scales, dv_quats, dv_opacs);
+                dv_means, dv_scales, dv_quats, dv_opacs,
+                first_trainable);
         }
     }
 

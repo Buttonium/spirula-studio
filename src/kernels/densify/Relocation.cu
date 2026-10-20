@@ -177,13 +177,19 @@ __global__ void compute_relocation_mask_kernel(
     uint32_t dead_after_steps,
     bool* __restrict__ masks,
     int32_t* __restrict__ num_relocate,
-    int32_t* __restrict__ relocate_indices
+    int32_t* __restrict__ relocate_indices,
+    int64_t first_trainable_splat
 ) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     int num_relocate_delta = 0;
 
     if (idx < num_splats) {
+
+        if ((int64_t)idx < first_trainable_splat) {
+            masks[idx] = true;
+            return;
+        }
 
         float3 mean = means[idx];
         float4 quat = quats[idx];
@@ -251,7 +257,8 @@ int64_t relocate_splats_with_long_axis_split_tensor(
     NonShQuantState non_sh,
     uint32_t seed,
     int64_t max_relocate,
-    int64_t* num_dead_out
+    int64_t* num_dead_out,
+    int64_t first_trainable_splat
 ) {
     int32_t* bias_correction_steps_ptr = bias_correction_steps.data_ptr();
     bool* mask = DevicePool::global().acquire<bool>(
@@ -275,7 +282,8 @@ int64_t relocate_splats_with_long_axis_split_tensor(
         dead_after_steps,
         mask,
         num_relocate_ptr,
-        dst_indices
+        dst_indices,
+        first_trainable_splat
     );
     CHECK_DEVICE_ERROR(cudaGetLastError());
 
