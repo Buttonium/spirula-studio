@@ -1,8 +1,9 @@
 # Sky model
 
-`--create-sky-splats` prepends a fixed 65,536-row sky model to the field, so a
-scene whose images always see sky has something to render there from the first
-step. Off by default; `spirula train --help` lists it.
+`--create-sky-splats` prepends a fixed sky model to the field, so a scene whose
+images always see sky has something to render there from the first step.
+`--sky-resolution` sets its size: low 32,768, medium (default) 65,536, high
+131,072, ultra 262,144 rows. Off by default; `spirula train --help` lists both.
 
 `src/app/SkyModel.{h,cpp}` owns geometry and CPU color accumulation, with no
 image I/O or engine dependency. `src/app/SkyBake.{h,cpp}` loads the dataset's
@@ -105,6 +106,10 @@ frozen prefix, the noise kernels must leave those rows bit-identical.
 It also covers relocation with opacity and peak-weight death tests;
 sparse-weight split draws leave the prefix unchanged. `optim_parity` checks
 learned-score exclusion and reduction counts.
+
+All four sizes are multiples of 256, the block the optimizer and densify
+kernels skip. A resumed run keeps the checkpoint's prefix; the setting applies
+to a fresh run.
 
 ## Restriction
 

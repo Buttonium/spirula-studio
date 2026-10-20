@@ -45,24 +45,26 @@ std::array<double, 2> unit_circle(double half_turns) {
 
 class Sphere {
 public:
-    explicit Sphere(double radius) : radius_(radius) {}
+    Sphere(double radius, int64_t count) : radius_(radius), count_(count) {}
 
     std::array<float, 3> point(int64_t ordinal) const {
-        const float band = ((float)ordinal + 0.5f) * (2.0f / (float)kSplatCount) - 1.0f;
+        const float band = ((float)ordinal + 0.5f) * (2.0f / (float)count_) - 1.0f;
         const double ring = std::sqrt(1.0 - (double)band * (double)band);
-        const auto azimuth = unit_circle((double)(0.7639320225002102f * (float)ordinal));
+        // Float phase quantized ultra's 262k rows into 64 azimuth columns.
+        const auto azimuth = unit_circle(0.7639320225002102 * (double)ordinal);
         return {(float)(azimuth[0] * ring * radius_), (float)((double)band * radius_),
                 (float)(azimuth[1] * ring * radius_)};
     }
 
     float spacing() const {
         const float radius = (float)radius_;
-        const float area = 4.0f * (float)pi * (radius * radius) / (float)kSplatCount;
+        const float area = 4.0f * (float)pi * (radius * radius) / (float)count_;
         return 1.5f * std::sqrt(area / (float)pi);
     }
 
 private:
     double radius_;
+    int64_t count_;
 };
 
 struct ViewContribution {
@@ -166,24 +168,27 @@ double scene_radius(const double* xyz, int64_t count) {
     return furthest == 0.0f ? 0.0 : (double)(std::sqrt(furthest) * 1.5f);
 }
 
-void spiral_point(int64_t index, double radius, float xyz[3]) {
-    const auto point = Sphere(radius).point(index);
+void spiral_point(int64_t index, double radius, float xyz[3], int64_t splat_count) {
+    const auto point = Sphere(radius, splat_count).point(index);
     std::copy(point.begin(), point.end(), xyz);
 }
 
-bool generate(const double* xyz, int64_t count, Rows& rows) {
-    const double extent = scene_radius(xyz, count);
+bool generate(const double* xyz, int64_t point_count, Rows& rows, int64_t splat_count) {
+    const double extent = scene_radius(xyz, point_count);
     if (!(extent > 0.0)) return false;
-    generate_at_radius(extent, rows);
+    generate_at_radius(extent, rows, splat_count);
     return true;
 }
 
-void generate_at_radius(double radius, Rows& rows) {
-    const Sphere sphere(radius);
+void generate_at_radius(double radius, Rows& rows, int64_t splat_count) {
+    // The optimizer and densify kernels skip whole 256-row blocks.
+    if (splat_count <= 0 || splat_count % 256 != 0)
+        throw std::invalid_argument("sky splat count must be a positive multiple of 256");
+    const Sphere sphere(radius, splat_count);
     rows.radius = radius;
     rows.spacing = sphere.spacing();
     const float scale = (float)std::log((double)rows.spacing);
-    const size_t count = (size_t)kSplatCount;
+    const size_t count = (size_t)splat_count;
     rows.means.resize(count * 3);
     rows.quats.resize(count * 4);
     rows.scales.assign(count * 3, scale);

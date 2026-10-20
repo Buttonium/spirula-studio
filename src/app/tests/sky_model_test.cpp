@@ -18,22 +18,38 @@ using spirula::sky::kSplatCount;
 // IEEE-754 float32 reference coordinates.
 struct GoldenRow { uint32_t i, x, y, z; };
 constexpr GoldenRow kGolden[] = {
-    {0u, 1124678297u, 3334607257u, 0u},           {16u, 1142336943u, 3334601047u, 1140718607u},
-    {32u, 1127962694u, 3334594836u, 1149780980u}, {48u, 3291138141u, 3334588626u, 1150399469u},
-    {64u, 3300364104u, 3334582416u, 1140983328u}, {80u, 3301676487u, 3334576205u, 3289987041u},
-    {96u, 3295198550u, 3334569995u, 3301950130u}, {112u, 1136782081u, 3334563785u, 3304880331u},
-    {128u, 1154841594u, 3334557575u, 3299666207u}, {144u, 1158782493u, 3334551364u, 1110840017u},
-    {160u, 1155976936u, 3334545154u, 1154112631u}, {176u, 1136737413u, 3334538944u, 1159666332u},
-    {192u, 3299840186u, 3334532733u, 1158630046u}, {208u, 3307598109u, 3334526523u, 1146918384u},
-    {224u, 3307767405u, 3334520313u, 3297142095u}, {240u, 3299939564u, 3334514103u, 3307573866u},
-    {256u, 1143019424u, 3334507892u, 3309151958u}, {272u, 1159574152u, 3334501682u, 3304417362u},
-    {288u, 1162701170u, 3334495472u, 1124104127u}, {304u, 1159465200u, 3334489261u, 1158563921u},
-    {320u, 1138926050u, 3334483051u, 1163313556u}, {336u, 3304012093u, 3334476841u, 1161490524u},
-    {352u, 3310936662u, 3334470630u, 1149685810u}, {368u, 3310744651u, 3334464420u, 3300155576u},
-    {384u, 3302453145u, 3334458210u, 3310568616u}, {400u, 1146847693u, 3334452000u, 3312169397u},
-    {416u, 1162193961u, 3334445789u, 3306402198u}, {432u, 1165688006u, 3334439579u, 1131119278u},
-    {448u, 1161413197u, 3334433369u, 1160783175u}, {464u, 1139282853u, 3334427158u, 1166110534u},
-    {480u, 3306362577u, 3334420948u, 1163678010u}, {496u, 3313586298u, 3334414738u, 1150663597u},
+    {0u, 1124678297u, 3334607257u, 0u},
+    {16u, 1142336954u, 3334601047u, 1140718581u},
+    {32u, 1127962887u, 3334594836u, 1149780975u},
+    {48u, 3291138007u, 3334588626u, 1150399508u},
+    {64u, 3300364081u, 3334582416u, 1140983458u},
+    {80u, 3301676506u, 3334576205u, 3289986941u},
+    {96u, 3295198933u, 3334569995u, 3301950022u},
+    {112u, 1136782052u, 3334563785u, 3304880332u},
+    {128u, 1154841472u, 3334557575u, 3299666357u},
+    {144u, 1158782497u, 3334551364u, 1110827130u},
+    {160u, 1155977035u, 3334545154u, 1154112518u},
+    {176u, 1136738898u, 3334538944u, 1159666304u},
+    {192u, 3299839658u, 3334532733u, 1158630207u},
+    {208u, 3307597970u, 3334526523u, 1146920057u},
+    {224u, 3307767409u, 3334520313u, 3297142076u},
+    {240u, 3299939807u, 3334514103u, 3307573801u},
+    {256u, 1143018354u, 3334507892u, 3309152015u},
+    {272u, 1159573896u, 3334501682u, 3304418021u},
+    {288u, 1162701192u, 3334495472u, 1124095038u},
+    {304u, 1159465243u, 3334489261u, 1158563874u},
+    {320u, 1138927731u, 3334483051u, 1163313528u},
+    {336u, 3304010299u, 3334476841u, 1161491097u},
+    {352u, 3310936504u, 3334470630u, 1149686822u},
+    {368u, 3310744639u, 3334464420u, 3300155632u},
+    {384u, 3302454703u, 3334458210u, 3310568219u},
+    {400u, 1146846540u, 3334452000u, 3312169464u},
+    {416u, 1162193216u, 3334445789u, 3306403195u},
+    {432u, 1165688044u, 3334439579u, 1131108926u},
+    {448u, 1161413217u, 3334433369u, 1160783154u},
+    {464u, 1139290997u, 3334427158u, 1166110477u},
+    {480u, 3306362254u, 3334420948u, 1163678226u},
+    {496u, 3313586100u, 3334414738u, 1150666332u},
 };
 constexpr uint32_t kGoldenRadiusBits = 0x46C2125Bu;
 constexpr uint32_t kGoldenScaleBits = 0x40B58EE4u;
@@ -92,6 +108,48 @@ void check_generate() {
     spirula::sky::Rows none;
     expect(!spirula::sky::generate(nullptr, 0, none) && none.means.empty(),
            "no sky is built when the cloud has no extent");
+}
+
+void check_counts() {
+    for (int64_t count : {spirula::sky::kSplatCountLow,
+                          spirula::sky::kSplatCountMedium,
+                          spirula::sky::kSplatCountHigh,
+                          spirula::sky::kSplatCountUltra}) {
+        const double radius = 10.0;
+        spirula::sky::Rows rows;
+        spirula::sky::generate_at_radius(radius, rows, count);
+        expect((int64_t)rows.opacities.size() == count &&
+                   (int64_t)rows.means.size() == count * 3,
+               "sky count selects the prefix size");
+        const float expected = 1.5f * std::sqrt(4.0f * (float)radius * (float)radius /
+                                                (float)count);
+        expect(std::fabs(rows.spacing - expected) < 1e-4f,
+               "spacing follows the sky count");
+        const float last_y = rows.means[(size_t)(count - 1) * 3 + 1];
+        expect(std::fabs(last_y - (float)radius * (1.0f - 1.0f / (float)count)) < 1e-4f,
+               "the last row closes the sphere");
+        float xyz[3];
+        spirula::sky::spiral_point(0, radius, xyz, count);
+        expect(xyz[0] == rows.means[0] && xyz[1] == rows.means[1] &&
+                   xyz[2] == rows.means[2],
+               "each count uses its own spiral");
+    }
+}
+
+void check_azimuth_precision() {
+    const int64_t count = spirula::sky::kSplatCountUltra;
+    spirula::sky::Rows rows;
+    spirula::sky::generate_at_radius(10.0, rows, count);
+    std::vector<float> angles;
+    angles.reserve((size_t)(count / 4));
+    for (int64_t i = count - count / 4; i < count; ++i)
+        angles.push_back(std::atan2(rows.means[(size_t)i * 3 + 2],
+                                    rows.means[(size_t)i * 3]));
+    std::sort(angles.begin(), angles.end());
+    float max_gap = 0.0f;
+    for (size_t i = 1; i < angles.size(); ++i)
+        max_gap = std::max(max_gap, angles[i] - angles[i - 1]);
+    expect(max_gap < 0.01f, "ultra azimuths are not quantized");
 }
 
 void check_golden_spiral() {
@@ -409,6 +467,16 @@ void benchmark_bake() {
 }  // namespace
 
 int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--golden") {
+        const double radius = from_bits(kGoldenRadiusBits);
+        for (const GoldenRow& g : kGolden) {
+            float xyz[3];
+            spirula::sky::spiral_point((int64_t)g.i, radius, xyz);
+            std::printf("    {%uu, %uu, %uu, %uu},\n", g.i, bits(xyz[0]),
+                        bits(xyz[1]), bits(xyz[2]));
+        }
+        return 0;
+    }
     if (argc == 2 && std::string(argv[1]) == "--benchmark") {
         benchmark_bake();
         return 0;
@@ -423,6 +491,8 @@ int main(int argc, char** argv) {
     std::ostream* sink = out.is_open() ? &out : nullptr;
     check_radius();
     check_generate();
+    check_counts();
+    check_azimuth_precision();
     check_golden_spiral();
     check_bake_sampler();
     check_view_c2w_is_the_dataset_record();

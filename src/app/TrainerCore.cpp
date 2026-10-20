@@ -573,6 +573,14 @@ DeadCriterion dead_criterion_enum(const std::string& c) {
     throw std::runtime_error("unknown dead_criterion: " + c);
 }
 
+int64_t sky_splat_count(const std::string& resolution) {
+    if (resolution == "low")    return sky::kSplatCountLow;
+    if (resolution == "medium") return sky::kSplatCountMedium;
+    if (resolution == "high")   return sky::kSplatCountHigh;
+    if (resolution == "ultra")  return sky::kSplatCountUltra;
+    throw std::runtime_error("unknown sky_resolution: " + resolution);
+}
+
 int densify_accum_mode_int(const std::string& mode) {
     if (mode == "max") return (int)DensifyAccumMode::Max;
     if (mode == "sum") return (int)DensifyAccumMode::Sum;
@@ -1353,12 +1361,13 @@ void TrainerSession::setup_engine() {
         const JsonValue* saved = state.find("num_sky_splats");
         const int64_t count = saved ? saved->as_int() : 0;
         if (count != 0) {
-            if (count != sky::kSplatCount)
+            if (count % 256 != 0)
                 throw std::runtime_error("resume checkpoint has an unsupported sky prefix size");
-            sky::generate_at_radius(1.0, sky_rows);
+            sky::generate_at_radius(1.0, sky_rows, count);
         }
     } else if (cfg.create_sky_splats) {
-        sky::generate(ds.points.xyz.data(), ds.points.num(), sky_rows);
+        sky::generate(ds.points.xyz.data(), ds.points.num(), sky_rows,
+                      sky_splat_count(cfg.sky_resolution));
     }
     SeedSplats seed = seed_world(color, (int64_t)sky_rows.opacities.size());
     const int64_t num_sky = add_sky_model(seed, sky_rows);

@@ -3589,6 +3589,42 @@ SS_MSG(create_sky_splats_help,
        "gelir. Gökyüzü splat'ları asla hareket etmez, büyümez ve budanmaz; kaydedilen "
        "ve dışa aktarılan modellerde kalır. Çalıştırma başlarken oluşturulur; sıfırlama "
        "yeniden oluşturur."));
+SS_MSG(sky_resolution,
+    EN("Sky model quality"), JA("スカイモデルの品質"), ZH_HANS("天空模型质量"),
+    ZH_HANT("天空模型品質"), KO("하늘 모델 품질"), DE("Himmelsmodellqualität"),
+    FR("Qualité du modèle de ciel"), ES("Calidad del modelo de cielo"),
+    PT("Qualidade do modelo de céu"), IT("Qualità del modello di cielo"),
+    NL("Kwaliteit van het luchtmodel"), RU("Качество модели неба"),
+    TR("Gökyüzü modeli kalitesi"));
+SS_MSG(sky_resolution_help,
+    EN("How many splats the sky model uses: low 32,768, medium 65,536, high "
+       "131,072, ultra 262,144. More splats improve the sky and cost more per step."),
+    JA("スカイモデルが使うスプラット数：低 32,768、中 65,536、高 131,072、最高 262,144。"
+       "多いほど空が良くなり、1ステップの処理が重くなります。"),
+    ZH_HANS("天空模型使用的泼溅数量：低 32,768，中 65,536，高 131,072，极高 262,144。"
+            "数量越多天空越好，每一步也越慢。"),
+    ZH_HANT("天空模型使用的潑濺數量：低 32,768，中 65,536，高 131,072，極高 262,144。"
+            "數量越多天空越好，每一步也越慢。"),
+    KO("하늘 모델이 사용하는 스플랫 수: 낮음 32,768, 보통 65,536, 높음 131,072, 최고 262,144. "
+       "많을수록 하늘이 좋아지고 단계마다 느려집니다."),
+    DE("Wie viele Splats das Himmelsmodell nutzt: niedrig 32.768, mittel "
+       "65.536, hoch 131.072, ultra 262.144. Mehr Splats verbessern den Himmel und kosten "
+       "pro Schritt mehr."),
+    FR("Nombre de splats du modèle de ciel : bas 32 768, moyen 65 536, élevé "
+       "131 072, ultra 262 144. Plus de splats améliorent le ciel et coûtent plus cher par étape."),
+    ES("Cuántos splats usa el modelo de cielo: bajo 32.768, medio 65.536, alto "
+       "131.072, ultra 262.144. Más splats mejoran el cielo y cuestan más por paso."),
+    PT("Quantos splats o modelo de céu usa: baixo 32.768, médio 65.536, alto "
+       "131.072, ultra 262.144. Mais splats melhoram o céu e custam mais por passo."),
+    IT("Quanti splat usa il modello di cielo: basso 32.768, medio 65.536, alto "
+       "131.072, ultra 262.144. Più splat migliorano il cielo e costano di più per passo."),
+    NL("Hoeveel splats het luchtmodel gebruikt: laag 32.768, gemiddeld 65.536, "
+       "hoog 131.072, ultra 262.144. Meer splats verbeteren de hemel en kosten meer per stap."),
+    RU("Сколько сплатов использует модель неба: низкое 32 768, среднее 65 536, "
+       "высокое 131 072, максимальное 262 144. Больше сплатов улучшают небо и стоят дороже на каждом шаге."),
+    TR("Gökyüzü modelinin kullandığı splat sayısı: düşük 32.768, orta 65.536, "
+       "yüksek 131.072, ultra 262.144. Daha çok splat gökyüzünü iyileştirir ve her adımda daha "
+       "pahalıdır."));
 SS_MSG(background_noise_pre_warmup,
     EN("Initial background noise"), JA("最初の背景ノイズの強さ"),
     ZH_HANS("初始背景噪声强度"), ZH_HANT("初始背景雜訊強度"),
@@ -13619,6 +13655,11 @@ inline constexpr ChoiceText kChoiceText[] = {
     {"quality", "medium", &choice_medium},
     {"quality", "high",   &choice_high},
     {"quality", "ultra",  &choice_ultra},
+
+    {"sky_resolution", "low",    &choice_low},
+    {"sky_resolution", "medium", &choice_medium},
+    {"sky_resolution", "high",   &choice_high},
+    {"sky_resolution", "ultra",  &choice_ultra},
 
     {"floater_suppression", "off",    &choice_off},
     {"floater_suppression", "mild",   &choice_mild},

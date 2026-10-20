@@ -272,7 +272,7 @@ void check_resumed_sky_optimizer() {
 
 void seed_case(std::ostream* out, const std::string& ply, int mode,
                bool preallocate, int degree, int cap = 64, bool verify = true,
-               int lobes = 0) {
+               int lobes = 0, int64_t sky_count = kSplatCount) {
     TrainerSession session;
     session.log_fn = [](const std::string&) {};
     session.cfg.cap_max = cap;
@@ -286,19 +286,19 @@ void seed_case(std::ostream* out, const std::string& ply, int mode,
     const auto color = resolve_color(session.cfg);
     spirula::SeedSplats plain;
     if (verify) plain = session.seed_world(color);
-    auto seed = session.seed_world(color, kSplatCount);
+    auto seed = session.seed_world(color, sky_count);
     const int64_t live = seed.num;
     const int64_t capacity = preallocate ? std::max<int64_t>(live, cap) : live;
     const float* pointers[] = {seed.means.data(), seed.quats.data(), seed.scales.data(),
                               seed.opacities.data(), seed.features_dc.data(),
                               seed.features_sh.data()};
     spirula::sky::Rows rows;
-    spirula::sky::generate_at_radius(1.0, rows);
+    spirula::sky::generate_at_radius(1.0, rows, sky_count);
     session.cfg.resume = "synthetic-sky-checkpoint";
-    expect(session.add_sky_model(seed, rows) == kSplatCount,
+    expect(session.add_sky_model(seed, rows) == sky_count,
            "sky prefix is added to point/PLY seeds");
-    expect(seed.num == live + kSplatCount &&
-               seed.opacities.size() == (size_t)(capacity + kSplatCount),
+    expect(seed.num == live + sky_count &&
+               seed.opacities.size() == (size_t)(capacity + sky_count),
            "live count and capacity include exactly one prefix");
     expect(pointers[0] == seed.means.data() && pointers[1] == seed.quats.data() &&
                pointers[2] == seed.scales.data() && pointers[3] == seed.opacities.data() &&
@@ -308,8 +308,8 @@ void seed_case(std::ostream* out, const std::string& ply, int mode,
         const int64_t K = ColorBasis{degree, session.cfg.sb_lobes}.coeffs();
         const auto unchanged = [&](const std::vector<float>& combined,
                                     const std::vector<float>& before, int64_t width) {
-            return combined.size() == before.size() + (size_t)(kSplatCount * width) &&
-                (before.empty() || std::memcmp(combined.data() + kSplatCount * width,
+            return combined.size() == before.size() + (size_t)(sky_count * width) &&
+                (before.empty() || std::memcmp(combined.data() + sky_count * width,
                                                before.data(), before.size() * sizeof(float)) == 0);
         };
         expect(plain.num == live && unchanged(seed.means, plain.means, 3) &&
@@ -329,7 +329,7 @@ void seed_case(std::ostream* out, const std::string& ply, int mode,
                    prefix_matches(seed.opacities, rows.opacities) &&
                    prefix_matches(seed.features_dc, rows.features_dc) &&
                    std::all_of(seed.features_sh.begin(),
-                               seed.features_sh.begin() + kSplatCount * K * 3,
+                               seed.features_sh.begin() + sky_count * K * 3,
                                [](float value) { return bits(value) == 0u; }),
                "sky rows match the generated prefix, including zero higher coefficients");
     }
@@ -353,6 +353,10 @@ void check_seed_layout(std::ostream* out) {
             seed_case(nullptr, ply.path.string(), mode, preallocate, 0, 64, true, 2);
         }
     }
+    for (int64_t sky_count : {spirula::sky::kSplatCountLow,
+                              spirula::sky::kSplatCountHigh,
+                              spirula::sky::kSplatCountUltra})
+        seed_case(nullptr, "", 0, true, 3, 64, true, 0, sky_count);
     TrainerSession session;
     session.ds.points = seed_points();
     session.cfg.cap_max = 32;
