@@ -21,6 +21,8 @@ constexpr float dc_basis = 0.28209479177387814f;
 constexpr int64_t batch_size = 256;
 constexpr size_t projection_parallel_rows = 16384;
 constexpr size_t completion_parallel_rows = 4096;
+// Rows this close to the horizon get the median colour pass.
+constexpr double horizon_band = 0.15;
 
 template<class Work>
 void visit_rows(int64_t count, [[maybe_unused]] bool parallel, const Work& work) {
@@ -48,7 +50,7 @@ public:
     Sphere(double radius, int64_t count) : radius_(radius), count_(count) {}
 
     std::array<float, 3> point(int64_t ordinal) const {
-        const float band = ((float)ordinal + 0.5f) * (2.0f / (float)count_) - 1.0f;
+        const float band = (float)latitude(ordinal);
         const double ring = std::sqrt(1.0 - (double)band * (double)band);
         // Float phase quantized ultra's 262k rows into 64 azimuth columns.
         const auto azimuth = unit_circle(0.7639320225002102 * (double)ordinal);
@@ -62,7 +64,21 @@ public:
         return 1.5f * std::sqrt(area / (float)pi);
     }
 
+    float local_spacing(int64_t ordinal) const {
+        constexpr float min_scale = 0.45f;
+        return spacing() * std::max(min_scale, (float)std::sqrt(density(ordinal)));
+    }
+
 private:
+    double latitude(int64_t ordinal) const {
+        const double u = ((double)ordinal + 0.5) * (2.0 / (double)count_) - 1.0;
+        return u * (kHorizonBias + (1.0 - kHorizonBias) * u * u);
+    }
+    double density(int64_t ordinal) const {
+        const double u = ((double)ordinal + 0.5) * (2.0 / (double)count_) - 1.0;
+        return kHorizonBias + 3.0 * (1.0 - kHorizonBias) * u * u;
+    }
+
     double radius_;
     int64_t count_;
 };
@@ -187,11 +203,10 @@ void generate_at_radius(double radius, Rows& rows, int64_t splat_count) {
     const Sphere sphere(radius, splat_count);
     rows.radius = radius;
     rows.spacing = sphere.spacing();
-    const float scale = (float)std::log((double)rows.spacing);
     const size_t count = (size_t)splat_count;
     rows.means.resize(count * 3);
     rows.quats.resize(count * 4);
-    rows.scales.assign(count * 3, scale);
+    rows.scales.resize(count * 3);
     rows.opacities.assign(count, std::numeric_limits<float>::infinity());
     rows.features_dc.assign(count * 3, 0.0f);
     constexpr std::array<float, 4> identity{1.0f, 0.0f, 0.0f, 0.0f};
@@ -199,6 +214,10 @@ void generate_at_radius(double radius, Rows& rows, int64_t splat_count) {
         const auto point = sphere.point((int64_t)row);
         std::copy(point.begin(), point.end(), rows.means.begin() + row * 3);
         std::copy(identity.begin(), identity.end(), rows.quats.begin() + row * 4);
+        const float scale = (float)std::log((double)sphere.local_spacing((int64_t)row));
+        rows.scales[row * 3 + 0] = scale;
+        rows.scales[row * 3 + 1] = scale;
+        rows.scales[row * 3 + 2] = scale;
     }
 }
 
@@ -222,11 +241,41 @@ void bake_finalize(Rows& rows, const Bake& bake) {
         return;
     }
     average_colors(rows, bake);
-    if (covered == count) return;
-    const Observations observed(rows, bake, covered);
-    const knn::KdTree3 nearest(observed.positions.data(), (int64_t)covered);
-    visit_rows((int64_t)count, count - covered >= completion_parallel_rows,
-                CompleteColors{rows, bake, observed, nearest});
+    if (covered != count) {
+        const Observations observed(rows, bake, covered);
+        const knn::KdTree3 nearest(observed.positions.data(), (int64_t)covered);
+        visit_rows((int64_t)count, count - covered >= completion_parallel_rows,
+                    CompleteColors{rows, bake, observed, nearest});
+    }
+    median_filter_horizon(rows);
+}
+
+void median_filter_horizon(Rows& rows) {
+    const int64_t count = (int64_t)(rows.means.size() / 3);
+    if (rows.spacing <= 0.0f || rows.radius <= 0.0 || count < 2) return;
+    // Read the unfiltered colours: in-place neighbours would race.
+    const std::vector<float> source = rows.features_dc;
+    const knn::KdTree3 tree(rows.means.data(), count);
+    const auto filter = [&](int64_t first, int64_t last) {
+        for (int64_t row = first; row != last; ++row) {
+            if (std::fabs(rows.means[(size_t)row * 3 + 1]) >=
+                horizon_band * (float)rows.radius) continue;
+            float d2[8];
+            int32_t ids[8];
+            const int found = tree.query(rows.means.data() + row * 3,
+                                         (int32_t)row, 8, d2, ids);
+            for (int channel = 0; channel != 3; ++channel) {
+                float values[9];
+                values[0] = source[(size_t)row * 3 + channel];
+                for (int i = 0; i != found; ++i)
+                    values[i + 1] = source[(size_t)ids[i] * 3 + channel];
+                const int n = found + 1;
+                std::nth_element(values, values + n / 2, values + n);
+                rows.features_dc[(size_t)row * 3 + channel] = values[n / 2];
+            }
+        }
+    };
+    visit_rows(count, count >= (int64_t)projection_parallel_rows, filter);
 }
 
 }  // namespace spirula::sky

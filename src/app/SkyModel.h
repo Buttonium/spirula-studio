@@ -14,13 +14,15 @@ inline constexpr int64_t kSplatCountMedium = int64_t(1) << 16;
 inline constexpr int64_t kSplatCountHigh   = int64_t(1) << 17;
 inline constexpr int64_t kSplatCountUltra  = int64_t(1) << 18;
 inline constexpr int64_t kSplatCount = kSplatCountMedium;
+// Latitude warp: 10x rows at the horizon; splats 0.45x there, 1.7x at the poles.
+inline constexpr double kHorizonBias = 0.1;
 
 // 1.5 * max|p|; 0 when the cloud is empty or all at the origin.
 double scene_radius(const double* xyz, int64_t count);
 
 struct Rows {
     double radius = 0.0;
-    float  spacing = 0.0f;           // scales store its natural log
+    float  spacing = 0.0f;           // base spacing; scales store its log per row
     std::vector<float> means;        // [count, 3]
     std::vector<float> quats;        // [count, 4], (w, x, y, z)
     std::vector<float> scales;       // [count, 3]  log spacing on all three axes
@@ -55,6 +57,9 @@ struct Bake {
 void bake_accumulate(const Rows& rows, const View& view, Bake& bake);
 
 void bake_finalize(Rows& rows, const Bake& bake);
+
+// Median-filter the horizon band's DC colours; a wrong-side splat would show as a pit/spike.
+void median_filter_horizon(Rows& rows);
 
 }  // namespace sky
 }  // namespace spirula

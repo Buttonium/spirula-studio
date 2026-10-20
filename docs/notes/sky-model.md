@@ -5,6 +5,13 @@ images always see sky has something to render there from the first step.
 `--sky-resolution` sets its size: low 32,768, medium (default) 65,536, high
 131,072, ultra 262,144 rows. Off by default; `spirula train --help` lists both.
 
+Rows are denser near the horizon: a latitude warp gives 10x the uniform row
+density at the equator; splats there are at least 0.45x the base spacing, and
+1.7x near the poles. At every tier the water/sky boundary therefore gets more
+samples than an even sphere would. The bake then median-filters the horizon
+band's DC colours, so an isolated splat that landed on the wrong side becomes
+its neighbours' colour instead of a pit or spike.
+
 `src/app/SkyModel.{h,cpp}` owns geometry and CPU color accumulation, with no
 image I/O or engine dependency. `src/app/SkyBake.{h,cpp}` loads the dataset's
 training images and drives that accumulation. `TrainerCore` attaches the baked

@@ -18,41 +18,41 @@ using spirula::sky::kSplatCount;
 // IEEE-754 float32 reference coordinates.
 struct GoldenRow { uint32_t i, x, y, z; };
 constexpr GoldenRow kGolden[] = {
-    {0u, 1124678297u, 3334607257u, 0u},
-    {16u, 1142336954u, 3334601047u, 1140718581u},
-    {32u, 1127962887u, 3334594836u, 1149780975u},
-    {48u, 3291138007u, 3334588626u, 1150399508u},
-    {64u, 3300364081u, 3334582416u, 1140983458u},
-    {80u, 3301676506u, 3334576205u, 3289986941u},
-    {96u, 3295198933u, 3334569995u, 3301950022u},
-    {112u, 1136782052u, 3334563785u, 3304880332u},
-    {128u, 1154841472u, 3334557575u, 3299666357u},
-    {144u, 1158782497u, 3334551364u, 1110827130u},
-    {160u, 1155977035u, 3334545154u, 1154112518u},
-    {176u, 1136738898u, 3334538944u, 1159666304u},
-    {192u, 3299839658u, 3334532733u, 1158630207u},
-    {208u, 3307597970u, 3334526523u, 1146920057u},
-    {224u, 3307767409u, 3334520313u, 3297142076u},
-    {240u, 3299939807u, 3334514103u, 3307573801u},
-    {256u, 1143018354u, 3334507892u, 3309152015u},
-    {272u, 1159573896u, 3334501682u, 3304418021u},
-    {288u, 1162701192u, 3334495472u, 1124095038u},
-    {304u, 1159465243u, 3334489261u, 1158563874u},
-    {320u, 1138927731u, 3334483051u, 1163313528u},
-    {336u, 3304010299u, 3334476841u, 1161491097u},
-    {352u, 3310936504u, 3334470630u, 1149686822u},
-    {368u, 3310744639u, 3334464420u, 3300155632u},
-    {384u, 3302454703u, 3334458210u, 3310568219u},
-    {400u, 1146846540u, 3334452000u, 3312169464u},
-    {416u, 1162193216u, 3334445789u, 3306403195u},
-    {432u, 1165688044u, 3334439579u, 1131108926u},
-    {448u, 1161413217u, 3334433369u, 1160783154u},
-    {464u, 1139290997u, 3334427158u, 1166110477u},
-    {480u, 3306362254u, 3334420948u, 1163678226u},
-    {496u, 3313586100u, 3334414738u, 1150666332u},
+    {0u, 1130735751u, 3334606907u, 0u},
+    {16u, 1148978181u, 3334589527u, 1146381867u},
+    {32u, 1134336462u, 3334572164u, 1155780038u},
+    {48u, 3297685534u, 3334554817u, 1156806849u},
+    {64u, 3306769318u, 3334537485u, 1146694958u},
+    {80u, 3307860300u, 3334520170u, 3296709503u},
+    {96u, 3301061122u, 3334502872u, 3308083436u},
+    {112u, 1143060901u, 3334485590u, 3310522129u},
+    {128u, 1160902150u, 3334468324u, 3306169428u},
+    {144u, 1165142690u, 3334451075u, 1117227945u},
+    {160u, 1161837315u, 3334433842u, 1160284447u},
+    {176u, 1143005729u, 3334416625u, 1166308126u},
+    {192u, 3306296482u, 3334399424u, 1164867585u},
+    {208u, 3314156518u, 3334382240u, 1152875663u},
+    {224u, 3314293270u, 3334365072u, 3302978808u},
+    {240u, 3306366673u, 3334347920u, 3314128224u},
+    {256u, 1149618587u, 3334330785u, 3315434970u},
+    {272u, 1166207789u, 3334313666u, 3310075776u},
+    {288u, 1168799039u, 3334296563u, 1129642954u},
+    {304u, 1166109890u, 3334279476u, 1164707974u},
+    {320u, 1144777456u, 3334262406u, 1169296575u},
+    {336u, 3309713697u, 3334245351u, 1167781036u},
+    {352u, 3316885066u, 3334228313u, 1155489152u},
+    {368u, 3316720869u, 3334211292u, 3306510432u},
+    {384u, 3308408669u, 3334194285u, 3316569616u},
+    {400u, 1152749570u, 3334177296u, 3317888974u},
+    {416u, 1168338589u, 3334160323u, 3312730780u},
+    {432u, 1171222057u, 3334143366u, 1136820768u},
+    {448u, 1167684550u, 3334126425u, 1167164067u},
+    {464u, 1145027304u, 3334109499u, 1171636151u},
+    {480u, 3312634238u, 3334092591u, 1169544839u},
+    {496u, 3319093883u, 3334075698u, 1157045720u},
 };
 constexpr uint32_t kGoldenRadiusBits = 0x46C2125Bu;
-constexpr uint32_t kGoldenScaleBits = 0x40B58EE4u;
+constexpr uint32_t kGoldenScaleBits = 1086720023u;
 constexpr float kGoldenSpacing = 291.1075439453125f;
 
 std::vector<uint8_t> stripe_image(int w, int h) {
@@ -91,13 +91,13 @@ void check_generate() {
     expect(rows.quats[0] == 1.0f && rows.quats[1] == 0.0f && rows.quats[2] == 0.0f &&
                rows.quats[3] == 0.0f,
            "rotation is the identity quaternion");
-    const float s = rows.scales[0];
-    expect(rows.scales[3] == s && rows.scales[3 * 3 + 2] == s,
-           "one log spacing on all three axes");
+    expect(rows.scales[0] == rows.scales[2] && rows.scales[3] == rows.scales[5],
+           "each row has one log spacing on all three axes");
     expect(rows.features_dc[0] == 0.0f && rows.features_dc[3 * 3] == 0.0f,
            "DC starts at zero until the bake");
-    expect(rows.spacing > 0.0f && s == (float)std::log((double)rows.spacing),
-           "scale is the natural log of the spacing");
+    expect(rows.scales[0] != rows.scales[3],
+           "splat spacing shrinks toward the horizon");
+    expect(rows.spacing > 0.0f, "the base spacing is positive");
     expect(std::fabs(rows.radius - 1.5) < 1e-9, "radius is kept for the bake");
 
     float xyz[3];
@@ -126,7 +126,10 @@ void check_counts() {
         expect(std::fabs(rows.spacing - expected) < 1e-4f,
                "spacing follows the sky count");
         const float last_y = rows.means[(size_t)(count - 1) * 3 + 1];
-        expect(std::fabs(last_y - (float)radius * (1.0f - 1.0f / (float)count)) < 1e-4f,
+        const double u = 1.0 - 1.0 / (double)count;
+        const double band = u * (spirula::sky::kHorizonBias +
+                                 (1.0 - spirula::sky::kHorizonBias) * u * u);
+        expect(std::fabs(last_y - (float)(radius * band)) < 1e-4f,
                "the last row closes the sphere");
         float xyz[3];
         spirula::sky::spiral_point(0, radius, xyz, count);
@@ -150,6 +153,20 @@ void check_azimuth_precision() {
     for (size_t i = 1; i < angles.size(); ++i)
         max_gap = std::max(max_gap, angles[i] - angles[i - 1]);
     expect(max_gap < 0.01f, "ultra azimuths are not quantized");
+}
+
+void check_horizon_median() {
+    spirula::sky::Rows rows;
+    spirula::sky::generate_at_radius(10.0, rows, spirula::sky::kSplatCountLow);
+    std::fill(rows.features_dc.begin(), rows.features_dc.end(), 0.0f);
+    const int64_t spike = spirula::sky::kSplatCountLow / 2;
+    rows.features_dc[(size_t)spike * 3] = 1.0f;
+    rows.features_dc[0] = 1.0f;
+    spirula::sky::median_filter_horizon(rows);
+    expect(rows.features_dc[(size_t)spike * 3] == 0.0f,
+           "a horizon outlier is replaced by its neighbours' median");
+    expect(rows.features_dc[0] == 1.0f,
+           "rows outside the horizon band are untouched");
 }
 
 void check_golden_spiral() {
@@ -475,6 +492,9 @@ int main(int argc, char** argv) {
             std::printf("    {%uu, %uu, %uu, %uu},\n", g.i, bits(xyz[0]),
                         bits(xyz[1]), bits(xyz[2]));
         }
+        spirula::sky::Rows rows;
+        spirula::sky::generate_at_radius(radius, rows);
+        std::printf("    // scale %uu\n", bits(rows.scales[0]));
         return 0;
     }
     if (argc == 2 && std::string(argv[1]) == "--benchmark") {
@@ -495,6 +515,7 @@ int main(int argc, char** argv) {
     check_azimuth_precision();
     check_golden_spiral();
     check_bake_sampler();
+    check_horizon_median();
     check_view_c2w_is_the_dataset_record();
     check_bake_finalize();
     check_fill_threads(sink);
