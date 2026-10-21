@@ -1,15 +1,15 @@
 # Sky model
 
-`--create-sky-splats` prepends a fixed sky model to the field, so a scene whose
-images always see sky has something to render there from the first step.
+`--create-sky-splats` prepends a fixed sky model to the field, so the background
+renders as part of the model from the first step.
 `--sky-resolution` sets its size: low 32,768, medium (default) 65,536, high
 131,072, ultra 262,144 rows. Off by default; `spirula train --help` lists both.
 
 Rows are denser near the horizon: a latitude warp gives 10x the uniform row
 density at the equator; splats there are at least 0.45x the base spacing, and
-1.7x near the poles. At every tier the water/sky boundary therefore gets more
+1.7x near the poles. At every tier the horizon band therefore gets more
 samples than an even sphere would. The bake then median-filters the horizon
-band's DC colours, so an isolated splat that landed on the wrong side becomes
+band's DC colours, so an isolated splat whose colour is an outlier becomes
 its neighbours' colour instead of a pit or spike.
 
 `src/app/SkyModel.{h,cpp}` owns geometry and CPU color accumulation, with no
