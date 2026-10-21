@@ -129,7 +129,7 @@ void golden(const std::string& dir) {
                       g.net, (int)g.normalize, k, got[k], g.want[k], ms));
 
         // Small tiles, so a 1000x700 view is many of them with a 96-pixel halo.
-        lpips::Scorer::Options tiled;
+        lpips::ScoreOptions tiled;
         tiled.tile = g.w > 500 ? 256 : 64;
         const std::vector<double> part =
             s.score(v.ref.data(), {v.noisy.data(), v.blend.data()}, g.w, g.h, g.normalize, tiled);
@@ -141,7 +141,7 @@ void golden(const std::string& dir) {
 
     // The fit decides tiles on its own when the workspace is small.
     const Views v = make_views(1000, 700);
-    lpips::Scorer::Options tight;
+    lpips::ScoreOptions tight;
     tight.workspace_bytes = 300ull << 20;
     const double whole = scorer[1].score(v.ref.data(), {v.noisy.data()}, 1000, 700, false)[0];
     const double fit = scorer[1].score(v.ref.data(), {v.noisy.data()}, 1000, 700, false, tight)[0];

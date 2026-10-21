@@ -18,19 +18,18 @@ struct Checkpoints {
     std::string linear;     // LPIPS v0.1's lin0..lin4
 };
 
+struct ScoreOptions {
+    // Device memory a tile may take; 0: half what the device has free, at most
+    // 3 GiB. A view that needs more is scored in tiles, with the same result.
+    uint64_t workspace_bytes = 0;
+    // Tile side in input pixels, rounded up to 16; 0: the largest that fits.
+    int tile = 0;
+};
+
 // Owns one net's weights and its workspace. Not thread-safe; scorers share the
 // process-wide inference device. Throws nn::Error.
 class Scorer {
 public:
-    struct Options {
-        // Device memory a tile may take; 0: half what the device has free, at
-        // most 3 GiB. A view that needs more is scored in tiles, with the same
-        // result.
-        uint64_t workspace_bytes = 0;
-        // Tile side in input pixels, rounded up to 16; 0: the largest that fits.
-        int tile = 0;
-    };
-
     Scorer();
     ~Scorer();
     Scorer(const Scorer&) = delete;
@@ -45,7 +44,7 @@ public:
     // [0, 1] and maps them to [-1, 1] first.
     std::vector<double> score(const float* ref, const std::vector<const float*>& preds,
                               int width, int height, bool normalize,
-                              const Options& opts = {});
+                              const ScoreOptions& opts = {});
 
 private:
     struct Impl;

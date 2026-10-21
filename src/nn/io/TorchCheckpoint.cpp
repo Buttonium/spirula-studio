@@ -326,6 +326,15 @@ void decode(Storage kind, const uint8_t* p, uint64_t step, float* out, uint64_t 
 }
 
 V state_dict(V root, const std::string& path) {
+    // torch.save(tensor) pickles the tensor itself; it is read back as "".
+    if (root->kind == Kind::Tensor) {
+        V dict = std::make_shared<Value>();
+        dict->kind = Kind::Dict;
+        V name = std::make_shared<Value>();
+        name->kind = Kind::String;
+        dict->pairs.emplace_back(name, root);
+        root = dict;
+    }
     NN_CHECK(root->kind == Kind::Dict, "%s: checkpoint root is not a state dictionary", path.c_str());
     for (const auto& p : root->pairs)
         if (p.first->text == "state_dict" && p.second->kind == Kind::Dict) return p.second;

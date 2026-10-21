@@ -2,7 +2,8 @@
 // Data-only torch.save checkpoints: the ZIP format, and the legacy one torch
 // wrote before 1.6 (torchvision's vgg16-397923af.pth). Pickle globals are
 // interpreted from a fixed tensor/container whitelist; no Python object or
-// callable is executed.
+// callable is executed. A checkpoint that is one bare tensor holds it under
+// the name "".
 
 #include "nn/io/Onnx.h"
 

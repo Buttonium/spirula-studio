@@ -415,7 +415,7 @@ void Scorer::load(Net net, const Checkpoints& files) {
 }
 
 std::vector<double> Scorer::score(const float* ref, const std::vector<const float*>& preds,
-                                  int width, int height, bool normalize, const Options& opts) {
+                                  int width, int height, bool normalize, const ScoreOptions& opts) {
     NN_ENSURE_EMBEDDED_MODULES(lpips);
     Impl& m = *impl_;
     NN_CHECK(m.loaded, "lpips::Scorer::score before load()");
